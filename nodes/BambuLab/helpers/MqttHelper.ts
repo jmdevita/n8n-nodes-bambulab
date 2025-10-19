@@ -5,6 +5,7 @@ import type {
 	PrinterStatus,
 	MQTTMessage,
 	CommandResponse,
+	AnyCommand,
 } from './types';
 
 /**
@@ -108,7 +109,7 @@ export class BambuLabMqttClient {
 	/**
 	 * Publish a command to the printer
 	 */
-	async publishCommand(command: object, waitForResponse = false): Promise<CommandResponse> {
+	async publishCommand(command: AnyCommand, waitForResponse = false): Promise<CommandResponse> {
 		return new Promise((resolve, reject) => {
 			if (!this.client || !this.client.connected) {
 				reject(new Error('MQTT client is not connected'));
@@ -129,10 +130,21 @@ export class BambuLabMqttClient {
 				}
 
 				if (!waitForResponse) {
+					const seqId =
+						'print' in command
+							? command.print.sequence_id
+							: 'pushing' in command
+								? command.pushing.sequence_id
+								: 'system' in command && command.system
+									? command.system.sequence_id
+									: 'gcode_line' in command
+										? command.gcode_line.sequence_id
+										: undefined;
+
 					resolve({
 						success: true,
 						message: 'Command sent successfully',
-						sequence_id: (command as any).print?.sequence_id || (command as any).sequence_id,
+						sequence_id: seqId,
 					});
 					return;
 				}
@@ -154,10 +166,15 @@ export class BambuLabMqttClient {
 				// Poll for response in message buffer
 				// Extract sequence_id from the command to match responses
 				const commandSeqId =
-					(command as any).print?.sequence_id ||
-					(command as any).pushing?.sequence_id ||
-					(command as any).system?.sequence_id ||
-					(command as any).gcode_line?.sequence_id;
+					'print' in command
+						? command.print.sequence_id
+						: 'pushing' in command
+							? command.pushing.sequence_id
+							: 'system' in command && command.system
+								? command.system.sequence_id
+								: 'gcode_line' in command
+									? command.gcode_line.sequence_id
+									: undefined;
 
 				checkInterval = setInterval(() => {
 					if (this.messageBuffer.length > 0) {
@@ -170,7 +187,7 @@ export class BambuLabMqttClient {
 									msg.print?.sequence_id === commandSeqId ||
 									msg.pushing?.sequence_id === commandSeqId ||
 									msg.system?.sequence_id === commandSeqId ||
-									(msg as any).gcode_line?.sequence_id === commandSeqId,
+									msg.gcode_line?.sequence_id === commandSeqId,
 							);
 						}
 
@@ -249,7 +266,7 @@ export class BambuLabMqttClient {
 
 						// Try to find the response matching our sequence ID
 						status = this.messageBuffer.find(
-							(msg) => (msg as any).pushing?.sequence_id === expectedSeqId,
+							(msg) => msg.pushing?.sequence_id === expectedSeqId,
 						) as PrinterStatus | undefined;
 
 						// Fallback: if no match found, take the last message

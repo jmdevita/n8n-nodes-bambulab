@@ -140,7 +140,7 @@ export interface UpgradeState {
 	message?: string;
 	module?: string;
 	new_version_state?: number;
-	new_ver_list?: any[];
+	new_ver_list?: unknown[];
 }
 
 export interface UploadStatus {
@@ -233,7 +233,7 @@ export interface FTPFileInfo {
 	type: 'file' | 'directory';
 	size: number;
 	modifiedTime?: Date;
-	permissions?: any;
+	permissions?: unknown; // Can be UnixPermissions, string, or number depending on FTP client
 }
 
 export interface FTPUploadProgress {
@@ -268,23 +268,29 @@ export interface VersionInfo {
 export interface BambuLabError {
 	code: number;
 	message: string;
-	details?: any;
+	details?: Record<string, unknown>;
 }
 
 // ===== MQTT Message Types =====
 
 export interface MQTTMessage {
-	print?: PrintInfo;
-	info?: any;
-	[key: string]: any;
+	print?: PrintInfo & { sequence_id?: string };
+	pushing?: { sequence_id?: string; command?: string; push_target?: number };
+	system?: { sequence_id?: string; command?: string };
+	gcode_line?: { sequence_id?: string; command?: string };
+	info?: Record<string, unknown>;
+	[key: string]: unknown;
 }
 
 // ===== Response Types =====
 
+// Union type for all command types
+export type AnyCommand = PrintCommand | SystemCommand | PushingCommand | GcodeLineCommand;
+
 export interface CommandResponse {
 	success: boolean;
 	message: string;
-	data?: any;
+	data?: MQTTMessage | PrinterStatus | unknown;
 	sequence_id?: string;
 }
 

@@ -10,6 +10,7 @@ module.exports = {
     'plugin:n8n-nodes-base/community',
   ],
   plugins: ['@typescript-eslint'],
+  ignorePatterns: ['gulpfile.js', 'jest.config.js', '*.test.ts', 'dist/**/*'],
   rules: {
     '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],

@@ -1,4 +1,5 @@
 import type {
+	IDataObject,
 	IExecuteFunctions,
 	INodeExecutionData,
 	INodeType,
@@ -9,7 +10,7 @@ import { NodeOperationError } from 'n8n-workflow';
 import { BambuLabMqttClient } from './helpers/MqttHelper';
 import { BambuLabFtpClient } from './helpers/FtpHelper';
 import { BambuLabCommands } from './helpers/commands';
-import type { BambuLabCredentials } from './helpers/types';
+import type { BambuLabCredentials, PrintJobOptions, LEDMode, LEDNode } from './helpers/types';
 
 export class BambuLab implements INodeType {
 	description: INodeTypeDescription = {
@@ -490,7 +491,7 @@ export class BambuLab implements INodeType {
 					const resource = this.getNodeParameter('resource', i) as string;
 					const operation = this.getNodeParameter('operation', i) as string;
 
-					let responseData: any = {};
+					let responseData: IDataObject = {};
 
 					// Connect to MQTT once if needed for MQTT-based resources
 					if (
@@ -506,7 +507,7 @@ export class BambuLab implements INodeType {
 
 						if (operation === 'start') {
 							const fileName = this.getNodeParameter('fileName', i) as string;
-							const options = this.getNodeParameter('printOptions', i, {}) as any;
+							const options = this.getNodeParameter('printOptions', i, {}) as Partial<PrintJobOptions>;
 
 							const command = commands.startPrint(fileName, {
 								bedLeveling: options.bedLeveling,
@@ -547,7 +548,7 @@ export class BambuLab implements INodeType {
 					else if (resource === 'status') {
 						if (operation === 'getCurrent') {
 							const status = await mqttClient.getStatus();
-							responseData = status;
+							responseData = status as unknown as IDataObject;
 						} else if (operation === 'getProgress') {
 							const status = await mqttClient.getStatus();
 							responseData = {
@@ -593,15 +594,15 @@ export class BambuLab implements INodeType {
 								remotePath,
 							});
 
-							responseData = result;
+							responseData = result as unknown as IDataObject;
 						} else if (operation === 'list') {
 							const path = this.getNodeParameter('path', i, '/') as string;
 							const result = await ftpClient.listFiles(path);
-							responseData = result;
+							responseData = result as unknown as IDataObject;
 						} else if (operation === 'delete') {
 							const filePath = this.getNodeParameter('filePath', i) as string;
 							const result = await ftpClient.deleteFile(filePath);
-							responseData = result;
+							responseData = result as unknown as IDataObject;
 						} else {
 							throw new NodeOperationError(
 								this.getNode(),
@@ -635,8 +636,8 @@ export class BambuLab implements INodeType {
 					// ==================== CONTROL RESOURCE ====================
 					else if (resource === 'control') {
 						if (operation === 'setLED') {
-							const ledNode = this.getNodeParameter('ledNode', i) as any;
-							const ledMode = this.getNodeParameter('ledMode', i) as any;
+							const ledNode = this.getNodeParameter('ledNode', i) as LEDNode;
+							const ledMode = this.getNodeParameter('ledMode', i) as LEDMode;
 
 							const command = commands.setLED(ledNode, ledMode);
 							await mqttClient.publishCommand(command);
