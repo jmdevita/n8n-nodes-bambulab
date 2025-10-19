@@ -1,0 +1,108 @@
+{
+  "name": "Bambu Lab: Upload and Print",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "When clicking 'Test workflow'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://example.com/model.gcode",
+        "method": "GET"
+      },
+      "id": "http-request",
+      "name": "Download G-code File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "notes": "Download your G-code file from a URL"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "fileContent": "={{$json.data}}",
+        "fileName": "my-model.gcode",
+        "remotePath": "/"
+      },
+      "id": "upload-file",
+      "name": "Upload to Printer",
+      "type": "n8n-nodes-bambulab.bambuLab",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "bambuLabApi": {
+          "id": "1",
+          "name": "Bambu Lab API"
+        }
+      },
+      "notes": "Upload the G-code file to the printer's SD card"
+    },
+    {
+      "parameters": {
+        "resource": "print",
+        "operation": "start",
+        "fileName": "my-model.gcode",
+        "printOptions": {
+          "bedLeveling": true,
+          "useAMS": false
+        }
+      },
+      "id": "start-print",
+      "name": "Start Print",
+      "type": "n8n-nodes-bambulab.bambuLab",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "credentials": {
+        "bambuLabApi": {
+          "id": "1",
+          "name": "Bambu Lab API"
+        }
+      },
+      "notes": "Start printing the uploaded file"
+    }
+  ],
+  "connections": {
+    "When clicking 'Test workflow'": {
+      "main": [
+        [
+          {
+            "node": "Download G-code File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download G-code File": {
+      "main": [
+        [
+          {
+            "node": "Upload to Printer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Printer": {
+      "main": [
+        [
+          {
+            "node": "Start Print",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

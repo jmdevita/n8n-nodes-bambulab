@@ -1,0 +1,123 @@
+{
+  "name": "Bambu Lab: Monitor Print Progress",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "resource": "status",
+        "operation": "getProgress"
+      },
+      "id": "get-progress",
+      "name": "Get Print Progress",
+      "type": "n8n-nodes-bambulab.bambuLab",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "bambuLabApi": {
+          "id": "1",
+          "name": "Bambu Lab API"
+        }
+      },
+      "notes": "Check the current print progress"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{$json.progress}}",
+              "rightValue": 50,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-halfway",
+      "name": "If Halfway Done",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "notifications@example.com",
+        "toEmail": "you@example.com",
+        "subject": "Print is Halfway Done!",
+        "message": "Your print {{$json.fileName}} is {{$json.progress}}% complete.\n\nEstimated time remaining: {{$json.remainingTime}} minutes",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [900, 300],
+      "notes": "Send an email notification"
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Print Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Print Progress": {
+      "main": [
+        [
+          {
+            "node": "If Halfway Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Halfway Done": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,23 @@
+{
+	"node": "n8n-nodes-bambulab.bambuLab",
+	"nodeVersion": "1.0.0",
+	"codexVersion": "1.0.0",
+	"categories": ["IoT", "Hardware", "Development"],
+	"subcategories": {
+		"IoT": ["Devices"],
+		"Hardware": ["3D Printing"]
+	},
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/Doridian/OpenBambuAPI"
+			}
+		]
+	},
+	"alias": ["bambu", "3d printer", "printing"]
+}
