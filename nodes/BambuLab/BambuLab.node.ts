@@ -16,7 +16,7 @@ export class BambuLab implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Bambu Lab',
 		name: 'bambuLab',
-		icon: 'file:bambulab.svg',
+		icon: 'file:bambulab.png',
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["resource"] + ": " + $parameter["operation"]}}',
