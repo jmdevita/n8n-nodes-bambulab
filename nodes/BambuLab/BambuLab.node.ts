@@ -126,8 +126,8 @@ export class BambuLab implements INodeType {
 				},
 				default: '',
 				required: true,
-				placeholder: 'model.gcode',
-				description: 'Name of the file on the printer SD card (usually in /mnt/sdcard/)',
+				placeholder: 'model.gcode.3mf',
+				description: 'Name of the .3mf file on the printer (e.g., model.3mf or model.gcode.3mf). Must be a sliced project file exported from Bambu Studio.',
 			},
 
 			// Print: Start - Options
