@@ -17,6 +17,7 @@ npm-debug.log*
 
 # LLM Tools
 .claude/
+CLAUDE.md
 
 # OS
 .DS_Store

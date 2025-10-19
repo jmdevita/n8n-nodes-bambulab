@@ -1,6 +1,4 @@
 import type {
-	IAuthenticateGeneric,
-	ICredentialTestRequest,
 	ICredentialType,
 	INodeProperties,
 } from 'n8n-workflow';
@@ -27,11 +25,9 @@ export class BambuLabApi implements ICredentialType {
 			displayName: 'Access Code',
 			name: 'accessCode',
 			type: 'string',
-			typeOptions: {
-				password: true,
-			},
 			default: '',
 			required: true,
+			placeholder: '12345678',
 			description:
 				'LAN access code from printer settings (Settings > Network > LAN Access Code)',
 		},
@@ -68,17 +64,4 @@ export class BambuLabApi implements ICredentialType {
 			description: 'FTP port on the printer for file operations (default: 990 for FTPS)',
 		},
 	];
-
-	// Test the connection to verify credentials
-	authenticate: IAuthenticateGeneric = {
-		type: 'generic',
-		properties: {},
-	};
-
-	test: ICredentialTestRequest = {
-		request: {
-			method: 'GET',
-			url: '={{$credentials.printerIp}}',
-		},
-	};
 }

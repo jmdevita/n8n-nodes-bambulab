@@ -1,6 +1,9 @@
 import type {
+	ICredentialsDecrypted,
+	ICredentialTestFunctions,
 	IDataObject,
 	IExecuteFunctions,
+	INodeCredentialTestResult,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
@@ -30,6 +33,7 @@ export class BambuLab implements INodeType {
 			{
 				name: 'bambuLabApi',
 				required: true,
+				testedBy: 'bambuLabApiTest',
 			},
 		],
 		properties: [
@@ -470,6 +474,52 @@ export class BambuLab implements INodeType {
 		],
 	};
 
+	methods = {
+		credentialTest: {
+			async bambuLabApiTest(
+				this: ICredentialTestFunctions,
+				credential: ICredentialsDecrypted,
+			): Promise<INodeCredentialTestResult> {
+				const credentials = credential.data as unknown as BambuLabCredentials;
+
+				try {
+					// Test MQTT connection
+					const mqttClient = new BambuLabMqttClient(credentials);
+					await mqttClient.connect();
+					mqttClient.disconnect();
+
+					// Test FTP connection
+					const ftpClient = new BambuLabFtpClient(credentials);
+					await ftpClient.connect();
+					ftpClient.disconnect();
+
+					return {
+						status: 'OK',
+						message: 'MQTT and FTP connections successful',
+					};
+				} catch (error) {
+					const err = error as Error;
+					// Provide more specific error message
+					if (err.message.includes('MQTT') || err.message.includes('mqtt')) {
+						return {
+							status: 'Error',
+							message: `MQTT connection failed: ${err.message}`,
+						};
+					} else if (err.message.includes('FTP') || err.message.includes('ftp')) {
+						return {
+							status: 'Error',
+							message: `FTP connection failed: ${err.message}`,
+						};
+					}
+					return {
+						status: 'Error',
+						message: `Connection failed: ${err.message}`,
+					};
+				}
+			},
+		},
+	};
+
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
@@ -690,8 +740,8 @@ export class BambuLab implements INodeType {
 
 			return [returnData];
 		} finally {
-			// Clean up connections
-			mqttClient.disconnect();
+			// Clean up connections - use force disconnect to avoid hanging
+			mqttClient.forceDisconnect();
 			ftpClient.disconnect();
 		}
 	}

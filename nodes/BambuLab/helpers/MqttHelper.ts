@@ -108,182 +108,163 @@ export class BambuLabMqttClient {
 
 	/**
 	 * Publish a command to the printer
+	 * Note: Does not wait for publish callback due to mqtt.js callback reliability issues
 	 */
 	async publishCommand(command: AnyCommand, waitForResponse = false): Promise<CommandResponse> {
+		if (!this.client || !this.client.connected) {
+			throw new Error('MQTT client is not connected');
+		}
+
+		// Clear message buffer if we're waiting for a response
+		if (waitForResponse) {
+			this.messageBuffer = [];
+		}
+
+		const commandStr = JSON.stringify(command);
+
+		// Extract sequence_id from the command
+		const commandSeqId =
+			'print' in command
+				? command.print.sequence_id
+				: 'pushing' in command
+					? command.pushing.sequence_id
+					: 'system' in command && command.system
+						? command.system.sequence_id
+						: 'gcode_line' in command
+							? command.gcode_line.sequence_id
+							: undefined;
+
+		// Publish without waiting for callback (mqtt.js has known callback reliability issues)
+		this.client.publish(this.requestTopic, commandStr, { qos: 1 });
+
+		// If not waiting for response, return immediately
+		if (!waitForResponse) {
+			return {
+				success: true,
+				message: 'Command sent successfully',
+				sequence_id: commandSeqId,
+			};
+		}
+
+		// Wait for printer response (not publish callback)
 		return new Promise((resolve, reject) => {
-			if (!this.client || !this.client.connected) {
-				reject(new Error('MQTT client is not connected'));
-				return;
-			}
+			let timeout: NodeJS.Timeout | null = null;
+			let checkInterval: NodeJS.Timeout | null = null;
 
-			// Clear message buffer if we're waiting for a response
-			if (waitForResponse) {
-				this.messageBuffer = [];
-			}
+			const cleanup = () => {
+				if (timeout) clearTimeout(timeout);
+				if (checkInterval) clearInterval(checkInterval);
+			};
 
-			const commandStr = JSON.stringify(command);
+			timeout = setTimeout(() => {
+				cleanup();
+				reject(new Error(`Command response timeout after ${this.responseTimeout}ms`));
+			}, this.responseTimeout);
 
-			this.client.publish(this.requestTopic, commandStr, { qos: 1 }, (error) => {
-				if (error) {
-					reject(new Error(`Failed to publish command: ${error.message}`));
-					return;
-				}
+			// Poll for response in message buffer
+			checkInterval = setInterval(() => {
+				if (this.messageBuffer.length > 0) {
+					let response: MQTTMessage | undefined;
 
-				if (!waitForResponse) {
-					const seqId =
-						'print' in command
-							? command.print.sequence_id
-							: 'pushing' in command
-								? command.pushing.sequence_id
-								: 'system' in command && command.system
-									? command.system.sequence_id
-									: 'gcode_line' in command
-										? command.gcode_line.sequence_id
-										: undefined;
-
-					resolve({
-						success: true,
-						message: 'Command sent successfully',
-						sequence_id: seqId,
-					});
-					return;
-				}
-
-				// Wait for response with proper cleanup
-				let timeout: NodeJS.Timeout | null = null;
-				let checkInterval: NodeJS.Timeout | null = null;
-
-				const cleanup = () => {
-					if (timeout) clearTimeout(timeout);
-					if (checkInterval) clearInterval(checkInterval);
-				};
-
-				timeout = setTimeout(() => {
-					cleanup();
-					reject(new Error(`Command response timeout after ${this.responseTimeout}ms`));
-				}, this.responseTimeout);
-
-				// Poll for response in message buffer
-				// Extract sequence_id from the command to match responses
-				const commandSeqId =
-					'print' in command
-						? command.print.sequence_id
-						: 'pushing' in command
-							? command.pushing.sequence_id
-							: 'system' in command && command.system
-								? command.system.sequence_id
-								: 'gcode_line' in command
-									? command.gcode_line.sequence_id
-									: undefined;
-
-				checkInterval = setInterval(() => {
-					if (this.messageBuffer.length > 0) {
-						let response: MQTTMessage | undefined;
-
-						// If we have a sequence ID, try to find matching response
-						if (commandSeqId) {
-							response = this.messageBuffer.find(
-								(msg) =>
-									msg.print?.sequence_id === commandSeqId ||
-									msg.pushing?.sequence_id === commandSeqId ||
-									msg.system?.sequence_id === commandSeqId ||
-									msg.gcode_line?.sequence_id === commandSeqId,
-							);
-						}
-
-						// Fallback: if no sequence ID or no match found, take the last message
-						if (!response) {
-							response = this.messageBuffer[this.messageBuffer.length - 1];
-						}
-
-						// If we found a response, return it
-						if (response) {
-							cleanup();
-							this.messageBuffer = [];
-
-							resolve({
-								success: true,
-								message: 'Command executed and response received',
-								data: response,
-							});
-						}
+					// If we have a sequence ID, try to find matching response
+					if (commandSeqId) {
+						response = this.messageBuffer.find(
+							(msg) =>
+								msg.print?.sequence_id === commandSeqId ||
+								msg.pushing?.sequence_id === commandSeqId ||
+								msg.system?.sequence_id === commandSeqId ||
+								msg.gcode_line?.sequence_id === commandSeqId,
+						);
 					}
-				}, 100);
-			});
+
+					// Fallback: if no sequence ID or no match found, take the last message
+					if (!response) {
+						response = this.messageBuffer[this.messageBuffer.length - 1];
+					}
+
+					// If we found a response, return it
+					if (response) {
+						cleanup();
+						this.messageBuffer = [];
+
+						resolve({
+							success: true,
+							message: 'Command executed and response received',
+							data: response,
+						});
+					}
+				}
+			}, 100);
 		});
 	}
 
 	/**
 	 * Get current printer status
 	 * Sends a "pushall" command and waits for the response
+	 * Note: Does not wait for publish callback due to mqtt.js callback reliability issues
 	 */
 	async getStatus(): Promise<PrinterStatus> {
+		if (!this.client || !this.client.connected) {
+			throw new Error('MQTT client is not connected');
+		}
+
+		// Clear message buffer
+		this.messageBuffer = [];
+
+		// Send pushall command to request full status
+		const pushCommand = {
+			pushing: {
+				sequence_id: Date.now().toString(),
+				command: 'pushall',
+				version: 1,
+				push_target: 1,
+			},
+		};
+
+		// Publish without waiting for callback (mqtt.js has known callback reliability issues)
+		this.client.publish(this.requestTopic, JSON.stringify(pushCommand), { qos: 1 });
+
+		// Wait for printer response (not publish callback)
 		return new Promise((resolve, reject) => {
-			if (!this.client || !this.client.connected) {
-				reject(new Error('MQTT client is not connected'));
-				return;
-			}
+			let timeout: NodeJS.Timeout | null = null;
+			let checkInterval: NodeJS.Timeout | null = null;
 
-			// Clear message buffer
-			this.messageBuffer = [];
-
-			// Send pushall command to request full status
-			const pushCommand = {
-				pushing: {
-					sequence_id: Date.now().toString(),
-					command: 'pushall',
-					version: 1,
-					push_target: 1,
-				},
+			const cleanup = () => {
+				if (timeout) clearTimeout(timeout);
+				if (checkInterval) clearInterval(checkInterval);
 			};
 
-			this.client.publish(this.requestTopic, JSON.stringify(pushCommand), { qos: 1 }, (error) => {
-				if (error) {
-					reject(new Error(`Failed to request status: ${error.message}`));
-					return;
-				}
+			timeout = setTimeout(() => {
+				cleanup();
+				reject(new Error(`Status request timeout after ${this.responseTimeout}ms`));
+			}, this.responseTimeout);
 
-				// Wait for response with proper cleanup
-				let timeout: NodeJS.Timeout | null = null;
-				let checkInterval: NodeJS.Timeout | null = null;
+			// Poll for response in message buffer
+			const expectedSeqId = pushCommand.pushing.sequence_id;
 
-				const cleanup = () => {
-					if (timeout) clearTimeout(timeout);
-					if (checkInterval) clearInterval(checkInterval);
-				};
+			checkInterval = setInterval(() => {
+				if (this.messageBuffer.length > 0) {
+					let status: PrinterStatus | undefined;
 
-				timeout = setTimeout(() => {
-					cleanup();
-					reject(new Error(`Status request timeout after ${this.responseTimeout}ms`));
-				}, this.responseTimeout);
+					// Try to find the response matching our sequence ID
+					status = this.messageBuffer.find(
+						(msg) => msg.pushing?.sequence_id === expectedSeqId,
+					) as PrinterStatus | undefined;
 
-				// Poll for response in message buffer
-				const expectedSeqId = pushCommand.pushing.sequence_id;
-
-				checkInterval = setInterval(() => {
-					if (this.messageBuffer.length > 0) {
-						let status: PrinterStatus | undefined;
-
-						// Try to find the response matching our sequence ID
-						status = this.messageBuffer.find(
-							(msg) => msg.pushing?.sequence_id === expectedSeqId,
-						) as PrinterStatus | undefined;
-
-						// Fallback: if no match found, take the last message
-						if (!status) {
-							status = this.messageBuffer[this.messageBuffer.length - 1] as PrinterStatus;
-						}
-
-						// If we found a status, return it
-						if (status) {
-							cleanup();
-							this.messageBuffer = [];
-
-							resolve(status);
-						}
+					// Fallback: if no match found, take the last message
+					if (!status) {
+						status = this.messageBuffer[this.messageBuffer.length - 1] as PrinterStatus;
 					}
-				}, 100);
-			});
+
+					// If we found a status, return it
+					if (status) {
+						cleanup();
+						this.messageBuffer = [];
+
+						resolve(status);
+					}
+				}
+			}, 100);
 		});
 	}
 

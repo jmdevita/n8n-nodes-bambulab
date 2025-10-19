@@ -33,15 +33,16 @@ export class BambuLabFtpClient {
 	 */
 	async connect(): Promise<void> {
 		try {
-			// Use FTPS (FTP over TLS) if the port is 990, otherwise plain FTP
-			const useFTPS = this.credentials.ftpPort === 990;
+			// Port 990 uses implicit FTPS (TLS from the start)
+			// Other ports use explicit FTPS or plain FTP
+			const secureMode = this.credentials.ftpPort === 990 ? 'implicit' : true;
 
 			await this.client.access({
 				host: this.credentials.printerIp,
 				port: this.credentials.ftpPort,
 				user: 'bblp',
 				password: this.credentials.accessCode,
-				secure: useFTPS,
+				secure: secureMode,
 				// Bambu Lab printers use self-signed certificates
 				secureOptions: {
 					rejectUnauthorized: false,
