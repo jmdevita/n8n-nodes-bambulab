@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-bambulab",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "n8n community node for controlling Bambu Lab 3D printers",
   "keywords": [
     "n8n-community-node-package",
