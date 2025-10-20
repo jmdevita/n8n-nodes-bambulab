@@ -1,0 +1,55 @@
+{
+  "name": "Bambu Lab: Auto-Detect AMS and Print",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "When clicking 'Test workflow'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "resource": "print",
+        "operation": "start",
+        "fileName": "model.gcode.3mf",
+        "printOptions": {
+          "autoDetectFilaments": true,
+          "bedLeveling": true,
+          "vibrationCalibration": true,
+          "timelapse": false
+        }
+      },
+      "id": "auto-detect-print",
+      "name": "Auto-Detect and Print",
+      "type": "n8n-nodes-bambulab.bambuLab",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "bambuLabApi": {
+          "id": "1",
+          "name": "Bambu Lab API"
+        }
+      },
+      "notes": "Automatically detects filament profiles from .3mf file and matches them to current AMS configuration"
+    }
+  ],
+  "connections": {
+    "When clicking 'Test workflow'": {
+      "main": [
+        [
+          {
+            "node": "Auto-Detect and Print",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -13,7 +13,16 @@ import { NodeOperationError } from 'n8n-workflow';
 import { BambuLabMqttClient } from './helpers/MqttHelper';
 import { BambuLabFtpClient } from './helpers/FtpHelper';
 import { BambuLabCommands } from './helpers/commands';
-import type { BambuLabCredentials, PrintJobOptions, LEDMode, LEDNode } from './helpers/types';
+import { FilamentProfileParser } from './helpers/FilamentProfileParser';
+import { FilamentMatcher } from './helpers/FilamentMatcher';
+import { PathValidator } from './helpers/PathValidator';
+import type {
+	BambuLabCredentials,
+	LEDMode,
+	LEDNode,
+	FilamentMatchResult,
+	MatchedFilamentProfile,
+} from './helpers/types';
 
 export class BambuLab implements INodeType {
 	description: INodeTypeDescription = {
@@ -145,6 +154,13 @@ export class BambuLab implements INodeType {
 				default: {},
 				options: [
 					{
+						displayName: '(Beta) Auto-Detect Filament Profiles',
+						name: 'autoDetectFilaments',
+						type: 'boolean',
+						default: false,
+						description: 'Automatically detect filament profiles and AMS mapping from the .3mf file on the printer. The file will be downloaded via FTP and parsed. If detection fails, the print operation will fail with an error. When enabled, Use AMS and AMS Mapping options are ignored.',
+					},
+					{
 						displayName: 'Bed Leveling',
 						name: 'bedLeveling',
 						type: 'boolean',
@@ -185,6 +201,11 @@ export class BambuLab implements INodeType {
 						type: 'boolean',
 						default: true,
 						description: 'Whether to use the Automatic Material System (AMS) for filament. If disabled, the printer will use the external spool holder (tray 0).',
+						displayOptions: {
+							show: {
+								autoDetectFilaments: [false],
+							},
+						},
 					},
 					{
 						displayName: 'AMS Mapping',
@@ -194,6 +215,7 @@ export class BambuLab implements INodeType {
 						description: 'Comma-separated tray IDs mapping to filament profiles in the .3mf file. Each position corresponds to a profile from the slicer in order. Use -1 for unused profiles. Example: "0" for single filament in slot 1, or "2,-1,0" for 3 profiles where first uses slot 3, second is unused, third uses slot 1. For A1 series: 0-3 = AMS slots 1-4.',
 						displayOptions: {
 							show: {
+								autoDetectFilaments: [false],
 								useAMS: [true],
 							},
 						},
@@ -502,15 +524,14 @@ export class BambuLab implements INodeType {
 				const credentials = credential.data as unknown as BambuLabCredentials;
 
 				try {
-					// Test MQTT connection
+					// Test MQTT and FTP connections in parallel for faster validation
 					const mqttClient = new BambuLabMqttClient(credentials);
-					await mqttClient.connect();
-					mqttClient.disconnect();
-
-					// Test FTP connection
 					const ftpClient = new BambuLabFtpClient(credentials);
-					await ftpClient.connect();
-					ftpClient.disconnect();
+
+					await Promise.all([
+						mqttClient.connect().then(() => mqttClient.disconnect()),
+						ftpClient.connect().then(() => ftpClient.disconnect()),
+					]);
 
 					return {
 						status: 'OK',
@@ -576,43 +597,124 @@ export class BambuLab implements INodeType {
 
 						if (operation === 'start') {
 							const fileName = this.getNodeParameter('fileName', i) as string;
-							const options = this.getNodeParameter('printOptions', i, {}) as Partial<PrintJobOptions>;
+							const options = this.getNodeParameter('printOptions', i, {}) as IDataObject;
+							const autoDetect = (options.autoDetectFilaments as boolean) ?? false;
 
-							// Parse AMS mapping string to number array
 							let amsMapping: number[] | undefined;
-							if (options.amsMapping && typeof options.amsMapping === 'string') {
+							let useAMS = ((options.useAMS as boolean) ?? true);
+							let matchResult: FilamentMatchResult | undefined; // Store matching details for response
+
+							if (autoDetect) {
+								// ==================== AUTO-DETECT MODE ====================
 								try {
-									amsMapping = options.amsMapping
-										.split(',')
-										.map((s) => s.trim())
-										.filter((s) => s !== '')
-										.map((s) => {
-											const num = parseInt(s, 10);
-											if (isNaN(num)) {
-												throw new Error(`Invalid AMS mapping value: "${s}". Must be a number or -1.`);
-											}
-											return num;
-										});
+									// Step 1: Download .3mf file from printer via FTP
+									const ftpClient = new BambuLabFtpClient(credentials);
+									await ftpClient.connect();
+
+									// FTP path: Files are in root directory (/), not /sdcard/
+									// MQTT uses file:///sdcard/ but FTP exposes files at root
+								// Sanitize fileName to prevent path traversal attacks
+								const sanitizedFileName = PathValidator.sanitizePath(fileName);
+									const remotePath = sanitizedFileName.startsWith('/')
+										? sanitizedFileName
+										: `/${sanitizedFileName}`;
+
+									const fileBuffer = await ftpClient.downloadFileAsBuffer(remotePath);
+									ftpClient.disconnect();
+
+									// Step 2: Parse filament profiles from .3mf
+									const parsedData = FilamentProfileParser.parseFromBuffer(fileBuffer);
+
+									// Step 3: Query current printer/AMS status
+									const currentStatus = await mqttClient.getStatus();
+
+									// Step 4: Match profiles to current AMS configuration
+									matchResult = FilamentMatcher.matchProfilesToAMS(
+										parsedData.profiles,
+										currentStatus
+									);
+
+									// Auto-detect mode requires AMS to be detected
+									// If user enabled auto-detect but no AMS found, fail immediately
+									if (!matchResult.amsDetected) {
+										throw new Error(
+											'Auto-detect enabled but AMS not detected. The printer status query did not return AMS data. ' +
+											'This could be due to: (1) AMS not connected, (2) MQTT timing issue, or (3) printer not sending AMS data. ' +
+											'Please disable auto-detect and use manual AMS mapping, or ensure your AMS is properly connected.'
+										);
+									}
+
+									// Use matched mapping (accounts for current slot positions)
+									amsMapping = matchResult.mapping;
+									useAMS = matchResult.amsDetected; // Use AMS only if detected
+
 								} catch (error) {
-									throw new Error(`Failed to parse AMS mapping: ${error instanceof Error ? error.message : String(error)}`);
+									// FAIL OPERATION - per user's choice
+									throw new NodeOperationError(
+										this.getNode(),
+										`Failed to auto-detect filament profiles from ${fileName}: ${
+											error instanceof Error ? error.message : String(error)
+										}. Please disable auto-detect and use manual AMS mapping, or ensure the .3mf file is valid and accessible on the printer.`,
+										{ itemIndex: i }
+									);
+								}
+							} else {
+								// ==================== MANUAL MODE ====================
+								useAMS = (options.useAMS as boolean) ?? true;
+
+								// Parse AMS mapping string to number array
+								if (options.amsMapping && typeof options.amsMapping === 'string') {
+									try {
+										amsMapping = options.amsMapping
+											.split(',')
+											.map((s: string) => s.trim())
+											.filter((s: string) => s !== '')
+											.map((s: string) => {
+												const num = parseInt(s, 10);
+												if (isNaN(num)) {
+													throw new Error(`Invalid AMS mapping value: "${s}". Must be a number or -1.`);
+												}
+												return num;
+											});
+									} catch (error) {
+										throw new Error(`Failed to parse AMS mapping: ${error instanceof Error ? error.message : String(error)}`);
+									}
 								}
 							}
 
+							// Build and send command
 							const command = commands.startPrint(fileName, {
-								bedLeveling: options.bedLeveling,
-								flowCalibration: options.flowCalibration,
-								vibrationCalibration: options.vibrationCalibration,
-								layerInspect: options.layerInspect,
-								timelapse: options.timelapse,
-								useAMS: options.useAMS,
+								bedLeveling: options.bedLeveling as boolean | undefined,
+								flowCalibration: options.flowCalibration as boolean | undefined,
+								vibrationCalibration: options.vibrationCalibration as boolean | undefined,
+								layerInspect: options.layerInspect as boolean | undefined,
+								timelapse: options.timelapse as boolean | undefined,
+								useAMS,
 								amsMapping,
 							});
 
 							await mqttClient.publishCommand(command);
+
+							// Include detection info in response if auto-detect was used
 							responseData = {
 								success: true,
 								message: `Print job started: ${fileName}`,
 								fileName,
+								...(autoDetect && matchResult ? {
+									autoDetected: true,
+									filamentsDetected: matchResult.matches.length,
+									amsMapping: amsMapping,
+									amsDetected: matchResult.amsDetected,
+									totalSlots: matchResult.totalSlots,
+									filamentMatches: matchResult.matches.map((m: MatchedFilamentProfile) => ({
+										type: m.type,
+										color: m.colour,
+										matchedSlot: m.matchedSlot,
+										matchQuality: m.matchQuality,
+										currentType: m.currentType,
+										currentColor: m.currentColor,
+									})),
+								} : {}),
 							};
 						} else if (operation === 'pause') {
 							const command = commands.pausePrint();

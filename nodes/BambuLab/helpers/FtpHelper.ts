@@ -8,7 +8,11 @@ import type {
 	FileListResponse,
 	FileDeleteResponse,
 } from './types';
-import { Readable } from 'stream';
+import { Readable, Writable } from 'stream';
+import { TIMEOUTS, PRINTER_DEFAULTS } from './constants';
+import { ErrorHelper } from './ErrorHelper';
+import { RetryHelper } from './RetryHelper';
+import { PathValidator } from './PathValidator';
 
 /**
  * FTP Helper for Bambu Lab Printer File Operations
@@ -19,7 +23,9 @@ export class BambuLabFtpClient {
 
 	private credentials: BambuLabCredentials;
 
-	private connectionTimeout = 15000; // 15 seconds
+	private connectionTimeout = TIMEOUTS.FTP_CONNECTION;
+
+	private isConnected = false;
 
 	constructor(credentials: BambuLabCredentials) {
 		this.credentials = credentials;
@@ -30,8 +36,24 @@ export class BambuLabFtpClient {
 
 	/**
 	 * Connect to the Bambu Lab printer via FTP/FTPS
+	 * Includes retry logic for transient connection failures
 	 */
 	async connect(): Promise<void> {
+		return RetryHelper.withConditionalRetry(
+			() => this.connectOnce(),
+			{
+				maxRetries: 2, // Try up to 3 times total (initial + 2 retries)
+				onRetry: (attempt, error) => {
+					console.warn(`FTP connection attempt ${attempt} failed: ${error.message}. Retrying...`);
+				},
+			}
+		);
+	}
+
+	/**
+	 * Internal method for single connection attempt
+	 */
+	private async connectOnce(): Promise<void> {
 		try {
 			// Port 990 uses implicit FTPS (TLS from the start)
 			// Other ports use explicit FTPS or plain FTP
@@ -40,7 +62,7 @@ export class BambuLabFtpClient {
 			await this.client.access({
 				host: this.credentials.printerIp,
 				port: this.credentials.ftpPort,
-				user: 'bblp',
+				user: PRINTER_DEFAULTS.FTP_USERNAME,
 				password: this.credentials.accessCode,
 				secure: secureMode,
 				// Bambu Lab printers use self-signed certificates
@@ -48,10 +70,25 @@ export class BambuLabFtpClient {
 					rejectUnauthorized: false,
 				},
 			});
+
+			this.isConnected = true;
 		} catch (error) {
-			throw new Error(
-				`Failed to connect to FTP server at ${this.credentials.printerIp}:${this.credentials.ftpPort}: ${(error as Error).message}`,
+			this.isConnected = false;
+			throw ErrorHelper.ftpConnectionFailed(
+				this.credentials.printerIp,
+				this.credentials.ftpPort,
+				(error as Error).message
 			);
+		}
+	}
+
+	/**
+	 * Ensure connection is established before operations
+	 * More robust than checking client.closed alone
+	 */
+	private async ensureConnection(): Promise<void> {
+		if (!this.isConnected || this.client.closed) {
+			await this.connect();
 		}
 	}
 
@@ -64,13 +101,15 @@ export class BambuLabFtpClient {
 		options: FTPUploadOptions,
 		progressCallback?: (progress: FTPUploadProgress) => void,
 	): Promise<FileUploadResponse> {
-		if (this.client.closed) {
-			await this.connect();
-		}
+		await this.ensureConnection();
 
 		try {
-			const remotePath = options.remotePath || '/';
-			const remoteFilePath = `${remotePath}/${options.fileName}`.replace('//', '/');
+			// Sanitize inputs to prevent path traversal
+			const sanitizedFilename = PathValidator.sanitizeFilename(options.fileName);
+			const sanitizedPath = PathValidator.sanitizePath(options.remotePath || '/');
+
+			// Use safe join to combine paths
+			const remoteFilePath = PathValidator.safeJoin(sanitizedPath, sanitizedFilename);
 
 			// Track upload progress if callback is provided
 			if (progressCallback && options.fileContent) {
@@ -117,26 +156,23 @@ export class BambuLabFtpClient {
 
 			return {
 				success: true,
-				message: `File ${options.fileName} uploaded successfully`,
-				fileName: options.fileName,
+				message: `File ${sanitizedFilename} uploaded successfully`,
+				fileName: sanitizedFilename,
 				remotePath: remoteFilePath,
 			};
 		} catch (error) {
 			const err = error as Error;
-			if (err.message.includes('ECONNREFUSED') || err.message.includes('connect')) {
-				throw new Error(
-					`Cannot connect to FTP server at ${this.credentials.printerIp}:${this.credentials.ftpPort}. Is the printer online and Developer Mode enabled?`,
-				);
-			} else if (err.message.includes('530') || err.message.includes('Login')) {
-				throw new Error(
-					`FTP authentication failed. Please verify your access code in the credentials.`,
-				);
+
+			// Use ErrorHelper to provide user-friendly messages
+			if (ErrorHelper.isConnectionError(err)) {
+				throw ErrorHelper.printerOffline();
+			} else if (ErrorHelper.isAuthError(err)) {
+				throw ErrorHelper.ftpAuthFailed();
 			} else if (err.message.includes('550') || err.message.includes('permission')) {
-				throw new Error(
-					`Permission denied. The printer may not allow file uploads to this location: ${options.remotePath}`,
-				);
+				throw ErrorHelper.ftpPermissionDenied(options.remotePath || '/');
 			}
-			throw new Error(`Failed to upload file: ${err.message}`);
+
+			throw ErrorHelper.wrapError(err, 'Failed to upload file');
 		}
 	}
 
@@ -145,12 +181,13 @@ export class BambuLabFtpClient {
 	 * @param remotePath Path to list (default: root directory)
 	 */
 	async listFiles(remotePath = '/'): Promise<FileListResponse> {
-		if (this.client.closed) {
-			await this.connect();
-		}
+		await this.ensureConnection();
 
 		try {
-			const fileList = await this.client.list(remotePath);
+			// Sanitize path to prevent traversal
+			const sanitizedPath = PathValidator.sanitizePath(remotePath);
+
+			const fileList = await this.client.list(sanitizedPath);
 
 			const files: FTPFileInfo[] = fileList.map((file) => ({
 				name: file.name,
@@ -174,17 +211,18 @@ export class BambuLabFtpClient {
 	 * @param remoteFilePath Full path to the file to delete
 	 */
 	async deleteFile(remoteFilePath: string): Promise<FileDeleteResponse> {
-		if (this.client.closed) {
-			await this.connect();
-		}
+		await this.ensureConnection();
 
 		try {
-			await this.client.remove(remoteFilePath);
+			// Sanitize path to prevent traversal
+			const sanitizedPath = PathValidator.sanitizePath(remoteFilePath);
+
+			await this.client.remove(sanitizedPath);
 
 			return {
 				success: true,
-				message: `File ${remoteFilePath} deleted successfully`,
-				fileName: remoteFilePath.split('/').pop() || remoteFilePath,
+				message: `File ${sanitizedPath} deleted successfully`,
+				fileName: sanitizedPath.split('/').pop() || sanitizedPath,
 			};
 		} catch (error) {
 			throw new Error(`Failed to delete file ${remoteFilePath}: ${(error as Error).message}`);
@@ -197,12 +235,13 @@ export class BambuLabFtpClient {
 	 * @param localPath Local path to save the file
 	 */
 	async downloadFile(remoteFilePath: string, localPath: string): Promise<void> {
-		if (this.client.closed) {
-			await this.connect();
-		}
+		await this.ensureConnection();
 
 		try {
-			await this.client.downloadTo(localPath, remoteFilePath);
+			// Sanitize remote path to prevent traversal
+			const sanitizedRemotePath = PathValidator.sanitizePath(remoteFilePath);
+
+			await this.client.downloadTo(localPath, sanitizedRemotePath);
 		} catch (error) {
 			throw new Error(
 				`Failed to download file ${remoteFilePath}: ${(error as Error).message}`,
@@ -211,16 +250,70 @@ export class BambuLabFtpClient {
 	}
 
 	/**
+	 * Download a file from the printer and return as Buffer
+	 * Used for parsing .3mf files for auto-detection
+	 * @param remoteFilePath Path to the file on the printer
+	 * @returns Buffer containing the file data
+	 */
+	async downloadFileAsBuffer(remoteFilePath: string): Promise<Buffer> {
+		await this.ensureConnection();
+
+		try {
+			// Sanitize path to prevent traversal
+			const sanitizedPath = PathValidator.sanitizePath(remoteFilePath);
+
+			// Create a writable stream that collects chunks into a buffer
+			const chunks: Buffer[] = [];
+			const writableStream = new Writable({
+				write(chunk: Buffer, _encoding: string, callback: () => void) {
+					chunks.push(chunk);
+					callback();
+				},
+			});
+
+			// Set timeout for large files
+			const oldTimeout = this.client.ftp.socket?.timeout;
+			if (this.client.ftp.socket) {
+				this.client.ftp.socket.setTimeout(TIMEOUTS.FTP_DOWNLOAD);
+			}
+
+			try {
+				await this.client.downloadTo(writableStream, sanitizedPath);
+			} finally {
+				// Restore original timeout
+				if (this.client.ftp.socket && oldTimeout !== undefined) {
+					this.client.ftp.socket.setTimeout(oldTimeout);
+				}
+			}
+
+			// Combine all chunks into a single buffer
+			return Buffer.concat(chunks);
+		} catch (error) {
+			const err = error as Error;
+
+			// Provide helpful error messages using ErrorHelper
+			if (err.message.includes('550') || err.message.includes('not found')) {
+				throw ErrorHelper.fileNotFound(remoteFilePath);
+			} else if (err.message.includes('timeout') || err.message.includes('ETIMEDOUT')) {
+				throw ErrorHelper.downloadTimeout(remoteFilePath);
+			}
+
+			throw ErrorHelper.wrapError(err, `Failed to download file ${remoteFilePath}`);
+		}
+	}
+
+	/**
 	 * Create a directory on the printer
 	 * @param remotePath Path to create
 	 */
 	async createDirectory(remotePath: string): Promise<void> {
-		if (this.client.closed) {
-			await this.connect();
-		}
+		await this.ensureConnection();
 
 		try {
-			await this.client.ensureDir(remotePath);
+			// Sanitize path to prevent traversal
+			const sanitizedPath = PathValidator.sanitizePath(remotePath);
+
+			await this.client.ensureDir(sanitizedPath);
 		} catch (error) {
 			throw new Error(`Failed to create directory ${remotePath}: ${(error as Error).message}`);
 		}
@@ -231,12 +324,13 @@ export class BambuLabFtpClient {
 	 * @param remotePath Path to change to
 	 */
 	async changeDirectory(remotePath: string): Promise<void> {
-		if (this.client.closed) {
-			await this.connect();
-		}
+		await this.ensureConnection();
 
 		try {
-			await this.client.cd(remotePath);
+			// Sanitize path to prevent traversal
+			const sanitizedPath = PathValidator.sanitizePath(remotePath);
+
+			await this.client.cd(sanitizedPath);
 		} catch (error) {
 			throw new Error(
 				`Failed to change directory to ${remotePath}: ${(error as Error).message}`,
@@ -248,9 +342,7 @@ export class BambuLabFtpClient {
 	 * Get the current working directory
 	 */
 	async getCurrentDirectory(): Promise<string> {
-		if (this.client.closed) {
-			await this.connect();
-		}
+		await this.ensureConnection();
 
 		try {
 			return await this.client.pwd();
@@ -261,9 +353,10 @@ export class BambuLabFtpClient {
 
 	/**
 	 * Check if connected to FTP server
+	 * More reliable than checking client.closed alone
 	 */
 	getConnectionStatus(): boolean {
-		return !this.client.closed;
+		return this.isConnected && !this.client.closed;
 	}
 
 	/**
@@ -273,5 +366,6 @@ export class BambuLabFtpClient {
 		if (!this.client.closed) {
 			this.client.close();
 		}
+		this.isConnected = false;
 	}
 }
