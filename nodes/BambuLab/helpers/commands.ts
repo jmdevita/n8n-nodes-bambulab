@@ -3,7 +3,7 @@ import type {
 	PushingCommand,
 	SystemCommand,
 	GcodeLineCommand,
-	PrintJobOptions,
+	PrintCommandOptions,
 	LEDMode,
 	LEDNode,
 } from './types';
@@ -25,13 +25,14 @@ export class BambuLabCommands {
 	/**
 	 * Start a print job
 	 * @param fileName Name of the file on the printer's SD card
-	 * @param options Print job options
+	 * @param options Print job options (amsMapping should be number[] if provided)
 	 */
-	startPrint(fileName: string, options?: Partial<PrintJobOptions>): PrintCommand {
-		// Ensure filename has proper path format
+	startPrint(fileName: string, options?: PrintCommandOptions): PrintCommand {
+		// Ensure filename has proper path format for A1 series
+		// A1 uses /sdcard/, X1/P1 typically use root or /cache/
 		const fileUrl = fileName.startsWith('file:///')
 			? fileName
-			: `file:///mnt/sdcard/${fileName}`;
+			: `file:///sdcard/${fileName}`;
 
 		// Extract just the filename (not the full path) for display
 		const displayName = fileName.split('/').pop() || fileName;
@@ -40,17 +41,28 @@ export class BambuLabCommands {
 			print: {
 				sequence_id: this.getNextSequenceId(),
 				command: 'project_file',
-				// Bambu Lab API requires this metadata parameter for all print jobs
-				// This points to the plate metadata within the 3MF/gcode file
+				// Metadata/plate_1.gcode points to the plate within the 3MF file
 				param: 'Metadata/plate_1.gcode',
+				// For local prints, these are empty strings (cloud prints use big numbers)
+				project_id: '',
+				profile_id: '',
+				task_id: '',
+				subtask_id: '',
+				// File location
 				url: fileUrl,
+				file: '', // Not needed when url is specified
 				subtask_name: displayName,
+				// Print settings - Note: US spelling "bed_leveling" per working examples
+				bed_type: 'auto', // "auto" for local prints, or specific plate type
 				bed_leveling: options?.bedLeveling ?? true,
 				flow_cali: options?.flowCalibration ?? false,
-				vibration_cali: options?.vibrationCalibration ?? false,
+				vibration_cali: options?.vibrationCalibration ?? true,
 				layer_inspect: options?.layerInspect ?? false,
-				use_ams: options?.useAMS ?? false,
-				ams_mapping: options?.amsMapping ?? [],
+				timelapse: options?.timelapse ?? false,
+				use_ams: options?.useAMS ?? true,
+				// Default to [0] (slot 1 for AMS, or external spool tray 0)
+				// Works for both use_ams true and false
+				ams_mapping: options?.amsMapping ?? [0]
 			},
 		};
 	}

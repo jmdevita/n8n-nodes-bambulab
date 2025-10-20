@@ -9,32 +9,45 @@ describe('BambuLabCommands', () => {
 
 	describe('startPrint', () => {
 		it('should create a start print command with default options', () => {
-			const command = commands.startPrint('model.gcode');
+			const command = commands.startPrint('model.3mf');
 
 			expect(command.print.command).toBe('project_file');
-			expect(command.print.url).toBe('file:///mnt/sdcard/model.gcode');
-			expect(command.print.bed_leveling).toBe(true);
+			expect(command.print.url).toBe('file:///sdcard/model.3mf');
+			expect(command.print.param).toBe('Metadata/plate_1.gcode');
+			// For local prints, these are empty strings (cloud uses big numbers)
+			expect(command.print.project_id).toBe('');
+			expect(command.print.profile_id).toBe('');
+			expect(command.print.task_id).toBe('');
+			expect(command.print.subtask_id).toBe('');
+			expect(command.print.file).toBe('');
+			// Print settings
+			expect(command.print.bed_type).toBe('auto');
+			expect(command.print.bed_leveling).toBe(true); // US spelling per working examples
 			expect(command.print.flow_cali).toBe(false);
-			expect(command.print.vibration_cali).toBe(false);
+			expect(command.print.vibration_cali).toBe(true); // Default is true
 			expect(command.print.layer_inspect).toBe(false);
-			expect(command.print.use_ams).toBe(false);
+			expect(command.print.timelapse).toBe(false);
+			expect(command.print.use_ams).toBe(true); // Default is true
+			expect(command.print.ams_mapping).toEqual([0]); // Default to slot 1 (tray id 0)
 			expect(command.print.sequence_id).toBeDefined();
 		});
 
 		it('should create a start print command with custom options', () => {
-			const command = commands.startPrint('model.gcode', {
+			const command = commands.startPrint('model.3mf', {
 				bedLeveling: false,
 				flowCalibration: true,
-				vibrationCalibration: true,
+				vibrationCalibration: false,
 				layerInspect: true,
-				useAMS: true,
+				timelapse: true,
+				useAMS: false,
 			});
 
-			expect(command.print.bed_leveling).toBe(false);
+			expect(command.print.bed_leveling).toBe(false); // US spelling
 			expect(command.print.flow_cali).toBe(true);
-			expect(command.print.vibration_cali).toBe(true);
+			expect(command.print.vibration_cali).toBe(false);
 			expect(command.print.layer_inspect).toBe(true);
-			expect(command.print.use_ams).toBe(true);
+			expect(command.print.timelapse).toBe(true);
+			expect(command.print.use_ams).toBe(false);
 		});
 
 		it('should handle file URLs correctly', () => {

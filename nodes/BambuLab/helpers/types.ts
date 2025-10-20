@@ -160,12 +160,23 @@ export interface PrintCommand extends BaseCommand {
 		sequence_id: string;
 		command: 'project_file' | 'pause' | 'resume' | 'stop';
 		param?: string;
+		// Required fields for project_file command (local prints)
+		project_id?: string;
+		profile_id?: string;
+		task_id?: string;
+		subtask_id?: string;
+		// File location
 		url?: string;
+		file?: string;
 		subtask_name?: string;
+		md5?: string;
+		// Print settings
+		bed_type?: string;
 		bed_leveling?: boolean;
 		flow_cali?: boolean;
 		vibration_cali?: boolean;
 		layer_inspect?: boolean;
+		timelapse?: boolean;
 		use_ams?: boolean;
 		ams_mapping?: number[];
 	};
@@ -251,8 +262,20 @@ export interface PrintJobOptions {
 	flowCalibration?: boolean;
 	vibrationCalibration?: boolean;
 	layerInspect?: boolean;
+	timelapse?: boolean;
 	useAMS?: boolean;
-	amsMapping?: number[];
+	amsMapping?: string | number[]; // String from UI (comma-separated) or array when used programmatically
+}
+
+// Subset of PrintJobOptions used for command generation (after UI string parsing)
+export interface PrintCommandOptions {
+	bedLeveling?: boolean;
+	flowCalibration?: boolean;
+	vibrationCalibration?: boolean;
+	layerInspect?: boolean;
+	timelapse?: boolean;
+	useAMS?: boolean;
+	amsMapping?: number[]; // Only number array for command generation
 }
 
 // ===== Version Info Types =====

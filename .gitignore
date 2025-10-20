@@ -29,3 +29,6 @@ coverage/
 # Environment
 .env
 .env.local
+
+# Tar Files
+*.tgz

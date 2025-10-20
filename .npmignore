@@ -30,3 +30,6 @@ tests/
 # LLM Helper
 CLAUDE.md
 .claude/
+
+# Tar Files
+*.tgz

@@ -162,7 +162,7 @@ export class BambuLab implements INodeType {
 						displayName: 'Vibration Calibration',
 						name: 'vibrationCalibration',
 						type: 'boolean',
-						default: false,
+						default: true,
 						description: 'Whether to perform vibration calibration before printing',
 					},
 					{
@@ -173,11 +173,30 @@ export class BambuLab implements INodeType {
 						description: 'Whether to enable layer inspection during printing',
 					},
 					{
+						displayName: 'Timelapse',
+						name: 'timelapse',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to record a timelapse video of the print',
+					},
+					{
 						displayName: 'Use AMS',
 						name: 'useAMS',
 						type: 'boolean',
-						default: false,
-						description: 'Whether to use the Automatic Material System (AMS)',
+						default: true,
+						description: 'Whether to use the Automatic Material System (AMS) for filament. If disabled, the printer will use the external spool holder (tray 0).',
+					},
+					{
+						displayName: 'AMS Mapping',
+						name: 'amsMapping',
+						type: 'string',
+						default: '0',
+						description: 'Comma-separated tray IDs mapping to filament profiles in the .3mf file. Each position corresponds to a profile from the slicer in order. Use -1 for unused profiles. Example: "0" for single filament in slot 1, or "2,-1,0" for 3 profiles where first uses slot 3, second is unused, third uses slot 1. For A1 series: 0-3 = AMS slots 1-4.',
+						displayOptions: {
+							show: {
+								useAMS: [true],
+							},
+						},
 					},
 				],
 			},
@@ -559,12 +578,34 @@ export class BambuLab implements INodeType {
 							const fileName = this.getNodeParameter('fileName', i) as string;
 							const options = this.getNodeParameter('printOptions', i, {}) as Partial<PrintJobOptions>;
 
+							// Parse AMS mapping string to number array
+							let amsMapping: number[] | undefined;
+							if (options.amsMapping && typeof options.amsMapping === 'string') {
+								try {
+									amsMapping = options.amsMapping
+										.split(',')
+										.map((s) => s.trim())
+										.filter((s) => s !== '')
+										.map((s) => {
+											const num = parseInt(s, 10);
+											if (isNaN(num)) {
+												throw new Error(`Invalid AMS mapping value: "${s}". Must be a number or -1.`);
+											}
+											return num;
+										});
+								} catch (error) {
+									throw new Error(`Failed to parse AMS mapping: ${error instanceof Error ? error.message : String(error)}`);
+								}
+							}
+
 							const command = commands.startPrint(fileName, {
 								bedLeveling: options.bedLeveling,
 								flowCalibration: options.flowCalibration,
 								vibrationCalibration: options.vibrationCalibration,
 								layerInspect: options.layerInspect,
+								timelapse: options.timelapse,
 								useAMS: options.useAMS,
+								amsMapping,
 							});
 
 							await mqttClient.publishCommand(command);
@@ -740,8 +781,8 @@ export class BambuLab implements INodeType {
 
 			return [returnData];
 		} finally {
-			// Clean up connections - use force disconnect to avoid hanging
-			mqttClient.forceDisconnect();
+			// Clean up connections - graceful disconnect with timeout fallback
+			await mqttClient.disconnect();
 			ftpClient.disconnect();
 		}
 	}

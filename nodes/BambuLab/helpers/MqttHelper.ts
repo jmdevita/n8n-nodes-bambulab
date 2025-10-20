@@ -296,15 +296,58 @@ export class BambuLabMqttClient {
 	}
 
 	/**
-	 * Disconnect from the printer
+	 * Disconnect from the printer with timeout
+	 * Attempts graceful disconnect, but falls back to force disconnect if callback doesn't fire
 	 */
-	disconnect(): void {
-		if (this.client) {
-			this.client.end(false, {}, () => {
-				this.client = null;
-				this.messageBuffer = [];
-			});
+	async disconnect(): Promise<void> {
+		if (!this.client) {
+			return;
 		}
+
+		return new Promise<void>((resolve) => {
+			const disconnectTimeout = 3000; // 3 seconds max wait
+			let disconnected = false;
+
+			// Set timeout to force disconnect if graceful takes too long
+			const timeout = setTimeout(() => {
+				if (!disconnected && this.client) {
+					console.warn('Graceful disconnect timeout, forcing disconnect');
+					this.client.end(true); // Force close
+					this.client = null;
+					this.messageBuffer = [];
+					disconnected = true;
+					resolve();
+				}
+			}, disconnectTimeout);
+
+			// Try graceful disconnect
+			try {
+				if (this.client) {
+					this.client.end(false, {}, () => {
+						if (!disconnected) {
+							clearTimeout(timeout);
+							this.client = null;
+							this.messageBuffer = [];
+							disconnected = true;
+							resolve();
+						}
+					});
+				} else {
+					clearTimeout(timeout);
+					resolve();
+				}
+			} catch (error) {
+				// If graceful fails, force disconnect
+				clearTimeout(timeout);
+				if (!disconnected && this.client) {
+					this.client.end(true);
+					this.client = null;
+					this.messageBuffer = [];
+					disconnected = true;
+				}
+				resolve();
+			}
+		});
 	}
 
 	/**
