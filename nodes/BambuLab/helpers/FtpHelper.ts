@@ -8,7 +8,7 @@ import type {
 	FileListResponse,
 	FileDeleteResponse,
 } from './types';
-import { Readable } from 'stream';
+import { Readable, Writable } from 'stream';
 
 /**
  * FTP Helper for Bambu Lab Printer File Operations
@@ -207,6 +207,62 @@ export class BambuLabFtpClient {
 			throw new Error(
 				`Failed to download file ${remoteFilePath}: ${(error as Error).message}`,
 			);
+		}
+	}
+
+	/**
+	 * Download a file from the printer and return as Buffer
+	 * Used for parsing .3mf files for auto-detection
+	 * @param remoteFilePath Path to the file on the printer
+	 * @returns Buffer containing the file data
+	 */
+	async downloadFileAsBuffer(remoteFilePath: string): Promise<Buffer> {
+		if (this.client.closed) {
+			await this.connect();
+		}
+
+		try {
+			// Create a writable stream that collects chunks into a buffer
+			const chunks: Buffer[] = [];
+			const writableStream = new Writable({
+				write(chunk: Buffer, _encoding: string, callback: () => void) {
+					chunks.push(chunk);
+					callback();
+				},
+			});
+
+			// Set timeout to 30 seconds for large files
+			const oldTimeout = this.client.ftp.socket?.timeout;
+			if (this.client.ftp.socket) {
+				this.client.ftp.socket.setTimeout(30000); // 30 seconds
+			}
+
+			try {
+				await this.client.downloadTo(writableStream, remoteFilePath);
+			} finally {
+				// Restore original timeout
+				if (this.client.ftp.socket && oldTimeout !== undefined) {
+					this.client.ftp.socket.setTimeout(oldTimeout);
+				}
+			}
+
+			// Combine all chunks into a single buffer
+			return Buffer.concat(chunks);
+		} catch (error) {
+			const err = error as Error;
+
+			// Provide helpful error messages
+			if (err.message.includes('550') || err.message.includes('not found')) {
+				throw new Error(
+					`File not found: ${remoteFilePath}. Make sure the .3mf file exists on the printer's SD card.`,
+				);
+			} else if (err.message.includes('timeout') || err.message.includes('ETIMEDOUT')) {
+				throw new Error(
+					`Download timeout: ${remoteFilePath} took too long to download. The file may be very large or the connection is slow.`,
+				);
+			}
+
+			throw new Error(`Failed to download file ${remoteFilePath}: ${err.message}`);
 		}
 	}
 

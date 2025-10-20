@@ -366,3 +366,37 @@ export type LifecycleState = 'idle' | 'printing' | 'paused' | 'preparing' | 'unk
 export type LEDMode = 'on' | 'off' | 'flashing';
 
 export type LEDNode = 'chamber_light' | 'work_light' | 'logo_led';
+
+// ===== Filament Profile Parsing Types =====
+
+export interface FilamentProfile {
+	index: number; // Profile position in .3mf (0, 1, 2...)
+	type: string; // Filament type: "PLA", "PETG", "TPU", etc.
+	colour: string; // Hex color "#515151" or color name
+	name: string; // Full profile name from slicer
+	slotNumber: number; // AMS slot number (1-indexed, from gcode)
+	trayId: number; // AMS tray ID (0-indexed, for ams_mapping)
+}
+
+export interface ParsedFilamentData {
+	profiles: FilamentProfile[]; // Only profiles actually used in print
+	detectedMapping: number[]; // Generated ams_mapping array
+	totalEmbedded: number; // Total profiles embedded in .3mf file
+}
+
+// ===== Filament Matching Types =====
+
+export interface MatchedFilamentProfile extends FilamentProfile {
+	matchedSlot: number; // Current physical slot where filament is loaded (1-4)
+	matchedTrayId: number; // Current tray ID (0-indexed, for ams_mapping)
+	matchQuality: 'exact'; // Always exact for strict matching mode
+	currentColor: string; // Actual color currently in AMS slot
+	currentType: string; // Actual type currently in AMS slot
+}
+
+export interface FilamentMatchResult {
+	mapping: number[]; // Final ams_mapping array to use for print command
+	matches: MatchedFilamentProfile[]; // Detailed match info for each profile
+	amsDetected: boolean; // Whether AMS is present on printer
+	totalSlots: number; // Total number of AMS slots available
+}
