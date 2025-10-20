@@ -153,7 +153,7 @@ export class BambuLab implements INodeType {
 				default: {},
 				options: [
 					{
-						displayName: 'Auto-Detect Filament Profiles',
+						displayName: '(Beta) Auto-Detect Filament Profiles',
 						name: 'autoDetectFilaments',
 						type: 'boolean',
 						default: false,
@@ -611,9 +611,11 @@ export class BambuLab implements INodeType {
 									const ftpClient = new BambuLabFtpClient(credentials);
 									await ftpClient.connect();
 
+									// FTP path: Files are in root directory (/), not /sdcard/
+									// MQTT uses file:///sdcard/ but FTP exposes files at root
 									const remotePath = fileName.startsWith('/')
 										? fileName
-										: `/sdcard/${fileName}`;
+										: `/${fileName}`;
 
 									const fileBuffer = await ftpClient.downloadFileAsBuffer(remotePath);
 									ftpClient.disconnect();
@@ -630,22 +632,19 @@ export class BambuLab implements INodeType {
 										currentStatus
 									);
 
+									// Auto-detect mode requires AMS to be detected
+									// If user enabled auto-detect but no AMS found, fail immediately
+									if (!matchResult.amsDetected) {
+										throw new Error(
+											'Auto-detect enabled but AMS not detected. The printer status query did not return AMS data. ' +
+											'This could be due to: (1) AMS not connected, (2) MQTT timing issue, or (3) printer not sending AMS data. ' +
+											'Please disable auto-detect and use manual AMS mapping, or ensure your AMS is properly connected.'
+										);
+									}
+
 									// Use matched mapping (accounts for current slot positions)
 									amsMapping = matchResult.mapping;
 									useAMS = matchResult.amsDetected; // Use AMS only if detected
-
-									// Log matching results for debugging
-									console.log(
-										`Auto-detected ${parsedData.profiles.length} filaments from ${fileName}:`,
-										matchResult.matches.map((m) =>
-											`${m.type} (${m.colour}) → Slot ${m.matchedSlot} [${m.matchQuality} match]`
-										).join(', ')
-									);
-									console.log(
-										`AMS ${matchResult.amsDetected ? 'detected' : 'not detected'} - ` +
-										`${matchResult.totalSlots} slot(s) available`
-									);
-									console.log(`Final AMS mapping: [${amsMapping.join(', ')}]`);
 
 								} catch (error) {
 									// FAIL OPERATION - per user's choice

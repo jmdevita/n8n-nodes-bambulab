@@ -72,9 +72,30 @@ export interface OnlineStatus {
 }
 
 export interface AMSStatus {
-	id?: number;
+	ams?: AMSUnit[]; // Array of AMS units (A1 has 1 unit with 4 trays)
+	ams_exist_bits?: string;
+	tray_exist_bits?: string;
+	tray_is_bbl_bits?: string;
+	tray_tar?: string;
+	tray_now?: string;
+	tray_pre?: string;
+	tray_read_done_bits?: string;
+	tray_reading_bits?: string;
+	version?: number;
+	insert_flag?: boolean;
+	power_on_flag?: boolean;
+}
+
+export interface AMSUnit {
+	chip_id?: string;
+	ams_id?: string;
+	check?: number;
+	id?: string;
 	humidity?: string;
+	humidity_raw?: string;
 	temp?: string;
+	dry_time?: number;
+	info?: string;
 	tray?: AMSTray[];
 }
 

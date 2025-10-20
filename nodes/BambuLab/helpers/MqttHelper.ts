@@ -246,12 +246,20 @@ export class BambuLabMqttClient {
 				if (this.messageBuffer.length > 0) {
 					let status: PrinterStatus | undefined;
 
-					// Try to find the response matching our sequence ID
+					// Prefer messages that have AMS data (more complete status)
+					// This ensures we get the full printer state, not just a partial update
 					status = this.messageBuffer.find(
-						(msg) => msg.pushing?.sequence_id === expectedSeqId,
+						(msg) => (msg as any).print?.ams !== undefined,
 					) as PrinterStatus | undefined;
 
-					// Fallback: if no match found, take the last message
+					// Fallback: if no AMS data found, try matching sequence ID
+					if (!status) {
+						status = this.messageBuffer.find(
+							(msg) => msg.pushing?.sequence_id === expectedSeqId,
+						) as PrinterStatus | undefined;
+					}
+
+					// Final fallback: take the last message
 					if (!status) {
 						status = this.messageBuffer[this.messageBuffer.length - 1] as PrinterStatus;
 					}

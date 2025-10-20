@@ -7,22 +7,32 @@ import type {
 } from '../types';
 
 describe('FilamentMatcher', () => {
-	// Helper to create mock AMS status
+	// Helper to create mock AMS status (new structure with ams.ams[] array)
 	const createMockAMS = (trays: Array<{ id: string; type: string; color: string }>): AMSStatus => ({
-		id: 0,
-		humidity: '50',
-		temp: '25',
-		tray: trays.map((t) => ({
-			id: t.id,
-			tray_type: t.type,
-			tray_color: t.color,
-			remain: 100,
-		})),
+		ams: [
+			{
+				id: '0',
+				humidity: '50',
+				temp: '25',
+				tray: trays.map((t) => ({
+					id: t.id,
+					tray_type: t.type,
+					tray_color: t.color,
+					remain: 100,
+				})),
+			},
+		],
+		ams_exist_bits: '1',
+		tray_exist_bits: 'f',
+		version: 2,
 	});
 
 	// Helper to create mock printer status
+	// AMS data is always nested under print.ams in real MQTT messages
 	const createMockStatus = (ams?: AMSStatus): PrinterStatus => ({
-		ams,
+		print: {
+			ams,
+		} as any,
 		gcode_state: 'IDLE',
 	});
 
@@ -251,10 +261,16 @@ describe('FilamentMatcher', () => {
 			];
 
 			const ams: AMSStatus = {
-				id: 0,
-				humidity: '50',
-				temp: '25',
-				tray: [], // Empty array
+				ams: [
+					{
+						id: '0',
+						humidity: '50',
+						temp: '25',
+						tray: [], // Empty array
+					},
+				],
+				ams_exist_bits: '1',
+				version: 2,
 			};
 
 			const status = createMockStatus(ams);

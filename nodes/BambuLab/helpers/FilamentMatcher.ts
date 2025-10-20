@@ -3,7 +3,7 @@ import type {
 	FilamentMatchResult,
 	MatchedFilamentProfile,
 	PrinterStatus,
-	AMSStatus,
+	AMSTray,
 } from './types';
 
 /**
@@ -32,10 +32,34 @@ export class FilamentMatcher {
 		profiles: FilamentProfile[],
 		currentStatus: PrinterStatus,
 	): FilamentMatchResult {
-		// Check if AMS is present
-		if (!currentStatus.ams || !currentStatus.ams.tray || currentStatus.ams.tray.length === 0) {
+		// AMS data is always nested under print.ams
+		const amsData = (currentStatus as any).print?.ams;
+
+		// Check if AMS is present - actual structure has print.ams.ams[] array
+		if (!amsData || !amsData.ams || amsData.ams.length === 0) {
 			// No AMS detected - assume external spool
 			// Use tray 0 for all filaments
+			return {
+				mapping: profiles.map(() => 0),
+				matches: profiles.map((p) => ({
+					...p,
+					matchedSlot: 1,
+					matchedTrayId: 0,
+					matchQuality: 'exact',
+					currentColor: p.colour,
+					currentType: p.type,
+				})),
+				amsDetected: false,
+				totalSlots: 1,
+			};
+		}
+
+		// Get all trays from all AMS units (flatten array)
+		// A1 series has 1 AMS unit with 4 trays
+		const allTrays = amsData.ams.flatMap((unit: any) => unit.tray || []);
+
+		if (allTrays.length === 0) {
+			// AMS exists but no trays loaded
 			return {
 				mapping: profiles.map(() => 0),
 				matches: profiles.map((p) => ({
@@ -56,11 +80,11 @@ export class FilamentMatcher {
 		const matches: MatchedFilamentProfile[] = [];
 
 		for (const profile of profiles) {
-			const match = this.findExactMatch(profile, currentStatus.ams);
+			const match = this.findExactMatch(profile, allTrays);
 
 			if (!match) {
 				// Strict mode - fail immediately
-				const available = this.formatAvailableFilaments(currentStatus.ams);
+				const available = this.formatAvailableFilaments(allTrays);
 				throw new Error(
 					`Filament not found in AMS: Need ${profile.type} (${profile.colour}) ` +
 						`for profile ${profile.index}. Available: ${available}`,
@@ -75,7 +99,7 @@ export class FilamentMatcher {
 			mapping,
 			matches,
 			amsDetected: true,
-			totalSlots: currentStatus.ams.tray.length,
+			totalSlots: allTrays.length,
 		};
 	}
 
@@ -85,12 +109,12 @@ export class FilamentMatcher {
 	 */
 	private static findExactMatch(
 		profile: FilamentProfile,
-		ams: AMSStatus,
+		trays: AMSTray[],
 	): MatchedFilamentProfile | null {
 		const normalizedProfileColor = this.normalizeColor(profile.colour);
 		const normalizedProfileType = this.normalizeType(profile.type);
 
-		for (const tray of ams.tray || []) {
+		for (const tray of trays) {
 			const trayColor = this.normalizeColor(tray.tray_color || '');
 			const trayType = this.normalizeType(tray.tray_type || '');
 
@@ -119,16 +143,25 @@ export class FilamentMatcher {
 	 * - Case: #FF0000 = #ff0000
 	 * - Leading #: #FF0000 = FF0000
 	 * - Whitespace: " #FF0000 " = "#FF0000"
+	 * - Alpha channel: 515151FF = 515151 (printer reports 8 chars, .3mf has 6)
 	 *
-	 * @param color Hex color code (with or without #)
-	 * @returns Normalized uppercase hex without #
+	 * @param color Hex color code (with or without #, with or without alpha)
+	 * @returns Normalized uppercase hex without # (6 chars)
 	 */
 	private static normalizeColor(color: string): string {
-		return color
+		let normalized = color
 			.trim()
 			.toUpperCase()
 			.replace(/^#/, '') // Remove leading #
 			.replace(/\s+/g, ''); // Remove all whitespace
+
+		// Strip alpha channel if present (8+ chars -> 6 chars)
+		// Printer reports: 515151FF, .3mf has: 515151
+		if (normalized.length >= 8) {
+			normalized = normalized.substring(0, 6);
+		}
+
+		return normalized;
 	}
 
 	/**
@@ -148,15 +181,15 @@ export class FilamentMatcher {
 	/**
 	 * Format available filaments for error messages
 	 *
-	 * @param ams Current AMS status
+	 * @param trays Array of AMS trays
 	 * @returns Human-readable string like "Slot 1: PLA (#FF0000), Slot 2: PETG (#000000)"
 	 */
-	private static formatAvailableFilaments(ams: AMSStatus): string {
-		if (!ams.tray || ams.tray.length === 0) {
+	private static formatAvailableFilaments(trays: AMSTray[]): string {
+		if (!trays || trays.length === 0) {
 			return 'No filaments loaded';
 		}
 
-		return ams.tray
+		return trays
 			.map((tray) => {
 				const slot = parseInt(tray.id || '0', 10) + 1;
 				const type = tray.tray_type || 'Unknown';
