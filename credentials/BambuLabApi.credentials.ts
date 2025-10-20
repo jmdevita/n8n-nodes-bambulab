@@ -54,7 +54,7 @@ export class BambuLabApi implements ICredentialType {
 			type: 'boolean',
 			default: true,
 			description:
-				'Whether to use TLS/SSL for MQTT connection (recommended). Note: Bambu Lab printers use self-signed certificates.',
+				'Whether to use TLS/SSL for MQTT connection (recommended). <br><br><strong>⚠️ SECURITY WARNING:</strong> This node disables TLS certificate validation because Bambu Lab printers use self-signed certificates. This creates a man-in-the-middle vulnerability. <strong>Only use on trusted, isolated networks.</strong> Attackers on your network can intercept credentials and printer commands. See documentation for details.',
 		},
 		{
 			displayName: 'FTP Port',

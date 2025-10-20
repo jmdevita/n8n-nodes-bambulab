@@ -66,9 +66,15 @@
   "dependencies": {
     "adm-zip": "^0.5.16",
     "basic-ftp": "^5.0.5",
+    "form-data": "^4.0.4",
     "mqtt": "^5.3.0"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
+  },
+  "overrides": {
+    "form-data": "^4.0.4",
+    "braces": "^3.0.3",
+    "micromatch": "^4.0.8"
   }
 }

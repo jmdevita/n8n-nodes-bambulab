@@ -15,6 +15,7 @@ import { BambuLabFtpClient } from './helpers/FtpHelper';
 import { BambuLabCommands } from './helpers/commands';
 import { FilamentProfileParser } from './helpers/FilamentProfileParser';
 import { FilamentMatcher } from './helpers/FilamentMatcher';
+import { PathValidator } from './helpers/PathValidator';
 import type {
 	BambuLabCredentials,
 	LEDMode,
@@ -523,15 +524,14 @@ export class BambuLab implements INodeType {
 				const credentials = credential.data as unknown as BambuLabCredentials;
 
 				try {
-					// Test MQTT connection
+					// Test MQTT and FTP connections in parallel for faster validation
 					const mqttClient = new BambuLabMqttClient(credentials);
-					await mqttClient.connect();
-					mqttClient.disconnect();
-
-					// Test FTP connection
 					const ftpClient = new BambuLabFtpClient(credentials);
-					await ftpClient.connect();
-					ftpClient.disconnect();
+
+					await Promise.all([
+						mqttClient.connect().then(() => mqttClient.disconnect()),
+						ftpClient.connect().then(() => ftpClient.disconnect()),
+					]);
 
 					return {
 						status: 'OK',
@@ -613,9 +613,11 @@ export class BambuLab implements INodeType {
 
 									// FTP path: Files are in root directory (/), not /sdcard/
 									// MQTT uses file:///sdcard/ but FTP exposes files at root
-									const remotePath = fileName.startsWith('/')
-										? fileName
-										: `/${fileName}`;
+								// Sanitize fileName to prevent path traversal attacks
+								const sanitizedFileName = PathValidator.sanitizePath(fileName);
+									const remotePath = sanitizedFileName.startsWith('/')
+										? sanitizedFileName
+										: `/${sanitizedFileName}`;
 
 									const fileBuffer = await ftpClient.downloadFileAsBuffer(remotePath);
 									ftpClient.disconnect();

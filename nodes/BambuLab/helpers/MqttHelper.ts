@@ -7,6 +7,9 @@ import type {
 	CommandResponse,
 	AnyCommand,
 } from './types';
+import { TIMEOUTS, INTERVALS, LIMITS, PRINTER_DEFAULTS } from './constants';
+import { ErrorHelper } from './ErrorHelper';
+import { RetryHelper } from './RetryHelper';
 
 /**
  * MQTT Helper for Bambu Lab Printer Communication
@@ -23,11 +26,15 @@ export class BambuLabMqttClient {
 
 	private messageBuffer: MQTTMessage[] = [];
 
-	private connectionTimeout = 10000; // 10 seconds
+	private connectionTimeout = TIMEOUTS.MQTT_CONNECTION;
 
-	private responseTimeout = 30000; // 30 seconds
+	private responseTimeout = TIMEOUTS.MQTT_RESPONSE;
 
 	private updateCallback?: (status: PrinterStatus) => void;
+
+	private lastParseError: Error | null = null;
+
+	private parseErrorHistory: Array<{ timestamp: Date; error: Error }> = [];
 
 	constructor(credentials: BambuLabCredentials) {
 		this.credentials = credentials;
@@ -37,14 +44,30 @@ export class BambuLabMqttClient {
 
 	/**
 	 * Connect to the Bambu Lab printer via MQTT
+	 * Includes retry logic for transient connection failures
 	 */
 	async connect(): Promise<void> {
+		return RetryHelper.withConditionalRetry(
+			() => this.connectOnce(),
+			{
+				maxRetries: 2, // Try up to 3 times total (initial + 2 retries)
+				onRetry: (attempt, error) => {
+					console.warn(`MQTT connection attempt ${attempt} failed: ${error.message}. Retrying...`);
+				},
+			}
+		);
+	}
+
+	/**
+	 * Internal method for single connection attempt
+	 */
+	private async connectOnce(): Promise<void> {
 		return new Promise((resolve, reject) => {
 			const protocol = this.credentials.useTls ? 'mqtts' : 'mqtt';
 			const brokerUrl = `${protocol}://${this.credentials.printerIp}:${this.credentials.mqttPort}`;
 
 			const options: IClientOptions = {
-				username: 'bblp',
+				username: PRINTER_DEFAULTS.MQTT_USERNAME,
 				password: this.credentials.accessCode,
 				protocol: this.credentials.useTls ? 'mqtts' : 'mqtt',
 				port: this.credentials.mqttPort,
@@ -60,11 +83,7 @@ export class BambuLabMqttClient {
 				// Connection timeout
 				const timeout = setTimeout(() => {
 					this.client?.end(true);
-					reject(
-						new Error(
-							`MQTT connection timeout after ${this.connectionTimeout}ms. Please check printer IP and network connection.`,
-						),
-					);
+					reject(ErrorHelper.mqttConnectionTimeout(this.connectionTimeout));
 				}, this.connectionTimeout);
 
 				// Connection successful
@@ -90,6 +109,11 @@ export class BambuLabMqttClient {
 				this.client.on('message', (topic, message) => {
 					try {
 						const parsedMessage = JSON.parse(message.toString()) as MQTTMessage;
+
+						// Enforce buffer size limit (prevent memory leaks)
+						if (this.messageBuffer.length >= LIMITS.MAX_MESSAGE_BUFFER) {
+							this.messageBuffer.shift(); // Remove oldest message
+						}
 						this.messageBuffer.push(parsedMessage);
 
 						// Also call the update callback if registered
@@ -97,7 +121,20 @@ export class BambuLabMqttClient {
 							this.updateCallback(parsedMessage as PrinterStatus);
 						}
 					} catch (error) {
-						console.error('Failed to parse MQTT message:', error);
+						// Track parse errors for debugging
+						const parseError = error as Error;
+						this.lastParseError = parseError;
+						this.parseErrorHistory.push({
+							timestamp: new Date(),
+							error: parseError,
+						});
+
+						// Keep only last 10 parse errors
+						if (this.parseErrorHistory.length > 10) {
+							this.parseErrorHistory.shift();
+						}
+
+						console.error('Failed to parse MQTT message:', parseError.message);
 					}
 				});
 			} catch (error) {
@@ -112,7 +149,7 @@ export class BambuLabMqttClient {
 	 */
 	async publishCommand(command: AnyCommand, waitForResponse = false): Promise<CommandResponse> {
 		if (!this.client || !this.client.connected) {
-			throw new Error('MQTT client is not connected');
+			throw ErrorHelper.mqttNotConnected();
 		}
 
 		// Clear message buffer if we're waiting for a response
@@ -158,10 +195,10 @@ export class BambuLabMqttClient {
 
 			timeout = setTimeout(() => {
 				cleanup();
-				reject(new Error(`Command response timeout after ${this.responseTimeout}ms`));
+				reject(ErrorHelper.commandResponseTimeout(this.responseTimeout));
 			}, this.responseTimeout);
 
-			// Poll for response in message buffer
+			// Poll for response in message buffer (optimized interval)
 			checkInterval = setInterval(() => {
 				if (this.messageBuffer.length > 0) {
 					let response: MQTTMessage | undefined;
@@ -194,7 +231,7 @@ export class BambuLabMqttClient {
 						});
 					}
 				}
-			}, 100);
+			}, INTERVALS.MESSAGE_POLL); // Optimized from 100ms to 250ms
 		});
 	}
 
@@ -205,7 +242,7 @@ export class BambuLabMqttClient {
 	 */
 	async getStatus(): Promise<PrinterStatus> {
 		if (!this.client || !this.client.connected) {
-			throw new Error('MQTT client is not connected');
+			throw ErrorHelper.mqttNotConnected();
 		}
 
 		// Clear message buffer
@@ -236,10 +273,10 @@ export class BambuLabMqttClient {
 
 			timeout = setTimeout(() => {
 				cleanup();
-				reject(new Error(`Status request timeout after ${this.responseTimeout}ms`));
+				reject(ErrorHelper.statusTimeout(this.responseTimeout));
 			}, this.responseTimeout);
 
-			// Poll for response in message buffer
+			// Poll for response in message buffer (optimized interval)
 			const expectedSeqId = pushCommand.pushing.sequence_id;
 
 			checkInterval = setInterval(() => {
@@ -272,7 +309,7 @@ export class BambuLabMqttClient {
 						resolve(status);
 					}
 				}
-			}, 100);
+			}, INTERVALS.MESSAGE_POLL); // Optimized from 100ms to 250ms
 		});
 	}
 
@@ -304,6 +341,30 @@ export class BambuLabMqttClient {
 	}
 
 	/**
+	 * Clear the message buffer
+	 * Useful for cleanup or resetting state
+	 */
+	clearMessageBuffer(): void {
+		this.messageBuffer = [];
+	}
+
+	/**
+	 * Get the last parse error (if any)
+	 * Useful for debugging message parsing issues
+	 */
+	getLastParseError(): Error | null {
+		return this.lastParseError;
+	}
+
+	/**
+	 * Get parse error history
+	 * Returns the last 10 parse errors with timestamps
+	 */
+	getParseErrorHistory(): Array<{ timestamp: Date; error: Error }> {
+		return [...this.parseErrorHistory]; // Return copy to prevent external modification
+	}
+
+	/**
 	 * Disconnect from the printer with timeout
 	 * Attempts graceful disconnect, but falls back to force disconnect if callback doesn't fire
 	 */
@@ -313,7 +374,7 @@ export class BambuLabMqttClient {
 		}
 
 		return new Promise<void>((resolve) => {
-			const disconnectTimeout = 3000; // 3 seconds max wait
+			const disconnectTimeout = TIMEOUTS.GRACEFUL_DISCONNECT;
 			let disconnected = false;
 
 			// Set timeout to force disconnect if graceful takes too long

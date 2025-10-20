@@ -12,7 +12,38 @@ This directory contains example n8n workflows demonstrating common use cases for
 
 ## Available Examples
 
-### 1. Upload and Print (`upload-and-print.json`)
+### 1. Auto-Detect AMS and Print (`auto-detect-print.json`)
+
+**Use Case**: Start a print with automatic filament detection and AMS slot mapping.
+
+**Workflow Steps**:
+1. Manual trigger
+2. Start print with auto-detect enabled (Print → Start)
+
+**How It Works**:
+- Downloads the .3mf file from printer via FTP
+- Parses filament profiles (type, color) from the file
+- Queries current AMS status via MQTT
+- Matches required filaments to currently loaded AMS slots by type and color
+- Generates correct AMS mapping based on actual slot positions
+- Fails if required filaments are not found in AMS
+
+**Benefits**:
+- No manual AMS mapping required
+- Prevents wrong filament usage (strict type + color matching)
+- Handles filaments moved between slicing and printing
+- Shows detailed match information in response
+
+**Customization**:
+- Change the file name to your .3mf file already on the printer
+- Adjust print options (bed leveling, timelapse, etc.)
+- Keep auto-detect enabled for automatic matching
+
+**Note**: File must be a .3mf (not plain gcode) and already uploaded to the printer.
+
+---
+
+### 2. Upload and Print (`upload-and-print.json`)
 
 **Use Case**: Download a G-code file from a URL, upload it to your printer, and start printing.
 
@@ -29,7 +60,7 @@ This directory contains example n8n workflows demonstrating common use cases for
 
 ---
 
-### 2. Monitor Print Progress (`monitor-print-progress.json`)
+### 3. Monitor Print Progress (`monitor-print-progress.json`)
 
 **Use Case**: Automatically monitor your print progress and send a notification when the print reaches 50% completion.
 
@@ -51,7 +82,18 @@ This directory contains example n8n workflows demonstrating common use cases for
 
 ### Common Patterns
 
-#### 1. File Upload from Local Storage
+#### 1. Auto-Detect Print (Recommended)
+```
+[Manual Trigger]
+    ↓
+[Bambu Lab - Print: Start] - Enable "Auto-Detect Filament Profiles"
+    ↓
+[Success Response] - Includes AMS mapping and match details
+```
+
+**Note**: File must already be on printer as .3mf format.
+
+#### 2. File Upload from Local Storage
 ```
 [Manual Trigger]
     ↓
@@ -59,10 +101,10 @@ This directory contains example n8n workflows demonstrating common use cases for
     ↓
 [Bambu Lab - File: Upload]
     ↓
-[Bambu Lab - Print: Start]
+[Bambu Lab - Print: Start] - Enable "Auto-Detect Filament Profiles"
 ```
 
-#### 2. Print Queue Management
+#### 3. Print Queue Management
 ```
 [Webhook Trigger] - Receive print requests
     ↓
@@ -77,7 +119,7 @@ This directory contains example n8n workflows demonstrating common use cases for
 [Bambu Lab - Print: Start]
 ```
 
-#### 3. Temperature Monitoring
+#### 4. Temperature Monitoring
 ```
 [Schedule Trigger] - Every minute
     ↓
@@ -90,7 +132,7 @@ This directory contains example n8n workflows demonstrating common use cases for
 [Send Alert]
 ```
 
-#### 4. Print Completion Notification
+#### 5. Print Completion Notification
 ```
 [Schedule Trigger] - Every 5 minutes
     ↓
