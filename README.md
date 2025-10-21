@@ -43,38 +43,13 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 
 📖 [Official Guide: Enable Developer Mode](https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode)
 
-## ⚠️ Security Considerations
+## Security Considerations
 
 **IMPORTANT:** Please read and understand these security implications before using this node.
 
 ### TLS Certificate Validation
 
 This node **disables TLS certificate validation** for both MQTT and FTP connections because Bambu Lab printers use self-signed certificates. This creates a **man-in-the-middle (MITM) vulnerability**.
-
-**What this means:**
-- Attackers on your local network can intercept the connection to your printer
-- They can steal your printer access codes
-- They can monitor what you're printing
-- They can inject malicious commands into your print jobs
-- They could potentially damage your printer with malicious G-code
-
-### Security Recommendations
-
-✅ **DO:**
-- **Only use on trusted, isolated networks** (home networks with WPA3 encryption, VLANs)
-- Place printers on a separate network segment if possible
-- Rotate your printer access codes regularly
-- Monitor your network for suspicious activity
-- Keep your printer firmware up to date
-- Review n8n execution logs periodically
-
-❌ **DO NOT:**
-- Use on public networks (coffee shops, co-working spaces, etc.)
-- Use on shared networks with untrusted users
-- Expose your n8n instance to the internet without proper security
-- Share workflows containing your credentials
-- Use the same access code across multiple integrations
-
 
 ### Known Limitations
 
@@ -123,7 +98,7 @@ Access the printer's camera.
 - **Get Stream URL**: Get URLs for the camera stream (RTSP and HTTP)
 - **Get Snapshot**: Get URL for capturing a snapshot
 
-⚠️ **Security Note**: The RTSP URL includes your access code for authentication (`rtsp://bblp:YOUR_ACCESS_CODE@PRINTER_IP/...`). Be careful not to expose these URLs in logs or share them publicly.
+**Security Note**: The RTSP URL includes your access code for authentication (`rtsp://bblp:YOUR_ACCESS_CODE@PRINTER_IP/...`). Be careful not to expose these URLs in logs or share them publicly.
 
 ### Control Resource
 Control printer hardware and settings.
