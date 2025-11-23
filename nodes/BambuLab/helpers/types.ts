@@ -58,6 +58,7 @@ export interface PrintInfo {
 	url?: string;
 	subtask_name?: string;
 	gcode_file?: string;
+	ams?: AMSStatus; // AMS data is nested under print.ams in MQTT messages
 }
 
 export interface HMSError {

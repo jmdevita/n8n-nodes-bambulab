@@ -286,7 +286,7 @@ export class BambuLabMqttClient {
 					// Prefer messages that have AMS data (more complete status)
 					// This ensures we get the full printer state, not just a partial update
 					status = this.messageBuffer.find(
-						(msg) => (msg as any).print?.ams !== undefined,
+						(msg) => (msg as PrinterStatus).print?.ams !== undefined,
 					) as PrinterStatus | undefined;
 
 					// Fallback: if no AMS data found, try matching sequence ID

@@ -33,7 +33,7 @@ export class FilamentMatcher {
 		currentStatus: PrinterStatus,
 	): FilamentMatchResult {
 		// AMS data is always nested under print.ams
-		const amsData = (currentStatus as any).print?.ams;
+		const amsData = currentStatus.print?.ams;
 
 		// Check if AMS is present - actual structure has print.ams.ams[] array
 		if (!amsData || !amsData.ams || amsData.ams.length === 0) {
@@ -56,7 +56,7 @@ export class FilamentMatcher {
 
 		// Get all trays from all AMS units (flatten array)
 		// A1 series has 1 AMS unit with 4 trays
-		const allTrays = amsData.ams.flatMap((unit: any) => unit.tray || []);
+		const allTrays = amsData.ams.flatMap((unit) => unit.tray || []);
 
 		if (allTrays.length === 0) {
 			// AMS exists but no trays loaded
