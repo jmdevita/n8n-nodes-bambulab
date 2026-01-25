@@ -98,6 +98,5 @@ export const ERROR_TEMPLATES = {
 		'Please disable auto-detect and use manual AMS mapping, or ensure your AMS is properly connected.',
 	FILAMENT_NOT_FOUND: (type: string, color: string, index: number, available: string) =>
 		`Filament not found in AMS: Need ${type} (${color}) for profile ${index}. Available: ${available}`,
-	PRINTER_OFFLINE:
-		'Cannot connect to printer. Is the printer online and Developer Mode enabled?',
+	PRINTER_OFFLINE: 'Cannot connect to printer. Is the printer online and Developer Mode enabled?',
 } as const;

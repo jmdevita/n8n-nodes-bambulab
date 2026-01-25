@@ -107,9 +107,7 @@ export class FilamentProfileParser {
 		}
 
 		if (filamentTypes.length === 0) {
-			throw new Error(
-				'Failed to parse gcode: "; filament_type =" line not found in header.',
-			);
+			throw new Error('Failed to parse gcode: "; filament_type =" line not found in header.');
 		}
 
 		// Build profiles for USED slots only
@@ -162,9 +160,7 @@ export class FilamentProfileParser {
 			.map((s) => {
 				const num = parseInt(s, 10);
 				if (isNaN(num) || num < 1 || num > 4) {
-					throw new Error(
-						`Invalid AMS slot number: "${s}". Must be 1-4 for A1 series.`,
-					);
+					throw new Error(`Invalid AMS slot number: "${s}". Must be 1-4 for A1 series.`);
 				}
 				return num;
 			});

@@ -47,15 +47,12 @@ export class BambuLabMqttClient {
 	 * Includes retry logic for transient connection failures
 	 */
 	async connect(): Promise<void> {
-		return RetryHelper.withConditionalRetry(
-			() => this.connectOnce(),
-			{
-				maxRetries: 2, // Try up to 3 times total (initial + 2 retries)
-				onRetry: (attempt, error) => {
-					console.warn(`MQTT connection attempt ${attempt} failed: ${error.message}. Retrying...`);
-				},
-			}
-		);
+		return RetryHelper.withConditionalRetry(() => this.connectOnce(), {
+			maxRetries: 2, // Try up to 3 times total (initial + 2 retries)
+			onRetry: (attempt, error) => {
+				console.warn(`MQTT connection attempt ${attempt} failed: ${error.message}. Retrying...`);
+			},
+		});
 	}
 
 	/**
@@ -285,9 +282,9 @@ export class BambuLabMqttClient {
 
 					// Prefer messages that have AMS data (more complete status)
 					// This ensures we get the full printer state, not just a partial update
-					status = this.messageBuffer.find(
-						(msg) => (msg as any).print?.ams !== undefined,
-					) as PrinterStatus | undefined;
+					status = this.messageBuffer.find((msg) => (msg as any).print?.ams !== undefined) as
+						| PrinterStatus
+						| undefined;
 
 					// Fallback: if no AMS data found, try matching sequence ID
 					if (!status) {

@@ -29,9 +29,7 @@ describe('PathValidator', () => {
 				expect(() => PathValidator.sanitizePath('../../../etc/passwd')).toThrow(
 					'Path traversal detected',
 				);
-				expect(() => PathValidator.sanitizePath('../../shadow')).toThrow(
-					'Path traversal detected',
-				);
+				expect(() => PathValidator.sanitizePath('../../shadow')).toThrow('Path traversal detected');
 				expect(() => PathValidator.sanitizePath('/sdcard/../../../etc/passwd')).toThrow(
 					'Path traversal detected',
 				);
@@ -126,12 +124,8 @@ describe('PathValidator', () => {
 
 		describe('Relative paths', () => {
 			it('should block ./ and ../ relative paths', () => {
-				expect(() => PathValidator.sanitizePath('./file.3mf')).toThrow(
-					/Path traversal/,
-				);
-				expect(() => PathValidator.sanitizePath('../file.3mf')).toThrow(
-					/Path traversal/,
-				);
+				expect(() => PathValidator.sanitizePath('./file.3mf')).toThrow(/Path traversal/);
+				expect(() => PathValidator.sanitizePath('../file.3mf')).toThrow(/Path traversal/);
 			});
 
 			it('should allow safe subdirectory paths', () => {
@@ -156,15 +150,11 @@ describe('PathValidator', () => {
 			});
 
 			it('should reject non-string inputs', () => {
-				expect(() => PathValidator.sanitizePath(null as any)).toThrow(
-					'must be a non-empty string',
-				);
+				expect(() => PathValidator.sanitizePath(null as any)).toThrow('must be a non-empty string');
 				expect(() => PathValidator.sanitizePath(undefined as any)).toThrow(
 					'must be a non-empty string',
 				);
-				expect(() => PathValidator.sanitizePath(123 as any)).toThrow(
-					'must be a non-empty string',
-				);
+				expect(() => PathValidator.sanitizePath(123 as any)).toThrow('must be a non-empty string');
 			});
 		});
 	});
@@ -205,16 +195,12 @@ describe('PathValidator', () => {
 
 		describe('Path separators', () => {
 			it('should block Unix path separators', () => {
-				expect(() => PathValidator.sanitizeFilename('dir/file.3mf')).toThrow(
-					'Path separators',
-				);
+				expect(() => PathValidator.sanitizeFilename('dir/file.3mf')).toThrow('Path separators');
 				expect(() => PathValidator.sanitizeFilename('/etc/passwd')).toThrow('Path separators');
 			});
 
 			it('should block Windows path separators', () => {
-				expect(() => PathValidator.sanitizeFilename('dir\\file.3mf')).toThrow(
-					'Path separators',
-				);
+				expect(() => PathValidator.sanitizeFilename('dir\\file.3mf')).toThrow('Path separators');
 				expect(() => PathValidator.sanitizeFilename('C:\\file.txt')).toThrow('Path separators');
 			});
 		});
@@ -236,18 +222,14 @@ describe('PathValidator', () => {
 		describe('Invalid characters', () => {
 			it('should block control characters', () => {
 				expect(PathValidator.sanitizeFilename('file\x00.txt')).toBe('file.txt'); // Null byte removed
-				expect(() => PathValidator.sanitizeFilename('file\x01.txt')).toThrow(
-					'invalid characters',
-				);
+				expect(() => PathValidator.sanitizeFilename('file\x01.txt')).toThrow('invalid characters');
 			});
 
 			it('should block special characters', () => {
 				expect(() => PathValidator.sanitizeFilename('file<script>.txt')).toThrow(
 					'invalid characters',
 				);
-				expect(() => PathValidator.sanitizeFilename('file|pipe.txt')).toThrow(
-					'invalid characters',
-				);
+				expect(() => PathValidator.sanitizeFilename('file|pipe.txt')).toThrow('invalid characters');
 				expect(() => PathValidator.sanitizeFilename('file?.txt')).toThrow('invalid characters');
 				expect(() => PathValidator.sanitizeFilename('file*.txt')).toThrow('invalid characters');
 			});

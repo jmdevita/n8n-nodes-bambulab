@@ -31,7 +31,7 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 
 **IMPORTANT:** Before using this node, you MUST enable **Developer Mode** on your Bambu Lab printer. This grants local network access via MQTT and FTP.
 
-⚠️ **Security Warning:** Developer Mode disables authentication and allows full control over your printer. Use only on trusted networks.
+**Security Warning:** Developer Mode disables authentication and allows full control over your printer. Use only on trusted networks.
 
 #### Enabling Developer Mode
 
@@ -39,13 +39,13 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 2. Enable **Developer Mode**
 3. Note your **LAN Access Code** from **Settings** → **Network** → **LAN Access Code**
 4. Note your **Serial Number** from **Settings** → **Device** → **Serial Number**
-5. Ensure your printer is connected to the same network as your n8n instance
+5. Make sure your printer is connected to the same network as your n8n instance
 
-📖 [Official Guide: Enable Developer Mode](https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode)
+[Official Guide: Enable Developer Mode](https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode)
 
 ## Security Considerations
 
-**IMPORTANT:** Please read and understand these security implications before using this node.
+**IMPORTANT:** Read this section before using this node.
 
 ### TLS Certificate Validation
 
@@ -190,7 +190,7 @@ See the `/examples` directory for complete workflow JSON files that you can impo
 1. Verify your printer is on the same network as n8n
 2. Check that Developer Mode is enabled
 3. Confirm the printer IP address is correct
-4. Ensure firewall isn't blocking ports 8883 (MQTT) or 990 (FTP)
+4. Make sure your firewall isn't blocking ports 8883 (MQTT) or 990 (FTP)
 5. Try pinging the printer: `ping <printer-ip>`
 
 ### Authentication Errors
@@ -199,7 +199,7 @@ See the `/examples` directory for complete workflow JSON files that you can impo
 
 **Solutions**:
 1. Verify your Access Code is correct (Settings → Network → LAN Access Code)
-2. Ensure Developer Mode is enabled
+2. Check that Developer Mode is enabled
 3. Try resetting the Access Code on the printer
 
 ### File Upload Failures
@@ -208,7 +208,7 @@ See the `/examples` directory for complete workflow JSON files that you can impo
 
 **Solutions**:
 1. Check that the file is a valid .gcode or .3MF file
-2. Ensure sufficient space on printer's SD card
+2. Check there's enough space on the printer's SD card
 3. Try uploading a smaller file first to test connection
 4. Check FTP port (default: 990) is accessible
 
@@ -219,7 +219,7 @@ See the `/examples` directory for complete workflow JSON files that you can impo
 **Solutions**:
 1. Verify the file name matches exactly (case-sensitive)
 2. Check that the file exists on the printer's SD card (use File → List)
-3. Ensure the printer is in IDLE state (not already printing)
+3. Make sure the printer is in IDLE state (not already printing)
 4. Check printer display for error messages
 
 ## Resources
@@ -284,7 +284,7 @@ This is a community-developed node and is not officially supported by Bambu Lab.
 
 - Built with [n8n](https://n8n.io/)
 - MQTT API documentation from [OpenBambuAPI](https://github.com/Doridian/OpenBambuAPI)
-- Bambu Lab for creating excellent 3D printers
+- Bambu Lab for making great 3D printers
 
 ---
 

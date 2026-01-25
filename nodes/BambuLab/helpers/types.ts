@@ -369,14 +369,7 @@ export type PrintState =
 	| 'SLICING'
 	| 'UNKNOWN';
 
-export type GcodeState =
-	| 'IDLE'
-	| 'PREPARE'
-	| 'RUNNING'
-	| 'PAUSE'
-	| 'FINISH'
-	| 'FAILED'
-	| 'UNKNOWN';
+export type GcodeState = 'IDLE' | 'PREPARE' | 'RUNNING' | 'PAUSE' | 'FINISH' | 'FAILED' | 'UNKNOWN';
 
 // ===== Lifecycle States =====
 

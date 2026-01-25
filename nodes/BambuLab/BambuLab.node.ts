@@ -136,7 +136,8 @@ export class BambuLab implements INodeType {
 				default: '',
 				required: true,
 				placeholder: 'model.gcode.3mf',
-				description: 'Name of the .3mf file on the printer (e.g., model.3mf or model.gcode.3mf). Must be a sliced project file exported from Bambu Studio.',
+				description:
+					'Name of the .3mf file on the printer (e.g., model.3mf or model.gcode.3mf). Must be a sliced project file exported from Bambu Studio.',
 			},
 
 			// Print: Start - Options
@@ -158,7 +159,8 @@ export class BambuLab implements INodeType {
 						name: 'autoDetectFilaments',
 						type: 'boolean',
 						default: false,
-						description: 'Automatically detect filament profiles and AMS mapping from the .3mf file on the printer. The file will be downloaded via FTP and parsed. If detection fails, the print operation will fail with an error. When enabled, Use AMS and AMS Mapping options are ignored.',
+						description:
+							'Automatically detect filament profiles and AMS mapping from the .3mf file on the printer. The file will be downloaded via FTP and parsed. If detection fails, the print operation will fail with an error. When enabled, Use AMS and AMS Mapping options are ignored.',
 					},
 					{
 						displayName: 'Bed Leveling',
@@ -200,7 +202,8 @@ export class BambuLab implements INodeType {
 						name: 'useAMS',
 						type: 'boolean',
 						default: true,
-						description: 'Whether to use the Automatic Material System (AMS) for filament. If disabled, the printer will use the external spool holder (tray 0).',
+						description:
+							'Whether to use the Automatic Material System (AMS) for filament. If disabled, the printer will use the external spool holder (tray 0).',
 						displayOptions: {
 							show: {
 								autoDetectFilaments: [false],
@@ -212,7 +215,8 @@ export class BambuLab implements INodeType {
 						name: 'amsMapping',
 						type: 'string',
 						default: '0',
-						description: 'Comma-separated tray IDs mapping to filament profiles in the .3mf file. Each position corresponds to a profile from the slicer in order. Use -1 for unused profiles. Example: "0" for single filament in slot 1, or "2,-1,0" for 3 profiles where first uses slot 3, second is unused, third uses slot 1. For A1 series: 0-3 = AMS slots 1-4.',
+						description:
+							'Comma-separated tray IDs mapping to filament profiles in the .3mf file. Each position corresponds to a profile from the slicer in order. Use -1 for unused profiles. Example: "0" for single filament in slot 1, or "2,-1,0" for 3 profiles where first uses slot 3, second is unused, third uses slot 1. For A1 series: 0-3 = AMS slots 1-4.',
 						displayOptions: {
 							show: {
 								autoDetectFilaments: [false],
@@ -565,7 +569,9 @@ export class BambuLab implements INodeType {
 		const returnData: INodeExecutionData[] = [];
 
 		// Get credentials
-		const credentials = (await this.getCredentials('bambuLabApi')) as unknown as BambuLabCredentials;
+		const credentials = (await this.getCredentials(
+			'bambuLabApi',
+		)) as unknown as BambuLabCredentials;
 
 		// Initialize helpers
 		const mqttClient = new BambuLabMqttClient(credentials);
@@ -594,14 +600,13 @@ export class BambuLab implements INodeType {
 
 					// ==================== PRINT RESOURCE ====================
 					if (resource === 'print') {
-
 						if (operation === 'start') {
 							const fileName = this.getNodeParameter('fileName', i) as string;
 							const options = this.getNodeParameter('printOptions', i, {}) as IDataObject;
 							const autoDetect = (options.autoDetectFilaments as boolean) ?? false;
 
 							let amsMapping: number[] | undefined;
-							let useAMS = ((options.useAMS as boolean) ?? true);
+							let useAMS = (options.useAMS as boolean) ?? true;
 							let matchResult: FilamentMatchResult | undefined; // Store matching details for response
 
 							if (autoDetect) {
@@ -613,8 +618,8 @@ export class BambuLab implements INodeType {
 
 									// FTP path: Files are in root directory (/), not /sdcard/
 									// MQTT uses file:///sdcard/ but FTP exposes files at root
-								// Sanitize fileName to prevent path traversal attacks
-								const sanitizedFileName = PathValidator.sanitizePath(fileName);
+									// Sanitize fileName to prevent path traversal attacks
+									const sanitizedFileName = PathValidator.sanitizePath(fileName);
 									const remotePath = sanitizedFileName.startsWith('/')
 										? sanitizedFileName
 										: `/${sanitizedFileName}`;
@@ -631,7 +636,7 @@ export class BambuLab implements INodeType {
 									// Step 4: Match profiles to current AMS configuration
 									matchResult = FilamentMatcher.matchProfilesToAMS(
 										parsedData.profiles,
-										currentStatus
+										currentStatus,
 									);
 
 									// Auto-detect mode requires AMS to be detected
@@ -639,15 +644,14 @@ export class BambuLab implements INodeType {
 									if (!matchResult.amsDetected) {
 										throw new Error(
 											'Auto-detect enabled but AMS not detected. The printer status query did not return AMS data. ' +
-											'This could be due to: (1) AMS not connected, (2) MQTT timing issue, or (3) printer not sending AMS data. ' +
-											'Please disable auto-detect and use manual AMS mapping, or ensure your AMS is properly connected.'
+												'This could be due to: (1) AMS not connected, (2) MQTT timing issue, or (3) printer not sending AMS data. ' +
+												'Please disable auto-detect and use manual AMS mapping, or ensure your AMS is properly connected.',
 										);
 									}
 
 									// Use matched mapping (accounts for current slot positions)
 									amsMapping = matchResult.mapping;
 									useAMS = matchResult.amsDetected; // Use AMS only if detected
-
 								} catch (error) {
 									// FAIL OPERATION - per user's choice
 									throw new NodeOperationError(
@@ -655,7 +659,7 @@ export class BambuLab implements INodeType {
 										`Failed to auto-detect filament profiles from ${fileName}: ${
 											error instanceof Error ? error.message : String(error)
 										}. Please disable auto-detect and use manual AMS mapping, or ensure the .3mf file is valid and accessible on the printer.`,
-										{ itemIndex: i }
+										{ itemIndex: i },
 									);
 								}
 							} else {
@@ -672,12 +676,16 @@ export class BambuLab implements INodeType {
 											.map((s: string) => {
 												const num = parseInt(s, 10);
 												if (isNaN(num)) {
-													throw new Error(`Invalid AMS mapping value: "${s}". Must be a number or -1.`);
+													throw new Error(
+														`Invalid AMS mapping value: "${s}". Must be a number or -1.`,
+													);
 												}
 												return num;
 											});
 									} catch (error) {
-										throw new Error(`Failed to parse AMS mapping: ${error instanceof Error ? error.message : String(error)}`);
+										throw new Error(
+											`Failed to parse AMS mapping: ${error instanceof Error ? error.message : String(error)}`,
+										);
 									}
 								}
 							}
@@ -700,21 +708,23 @@ export class BambuLab implements INodeType {
 								success: true,
 								message: `Print job started: ${fileName}`,
 								fileName,
-								...(autoDetect && matchResult ? {
-									autoDetected: true,
-									filamentsDetected: matchResult.matches.length,
-									amsMapping: amsMapping,
-									amsDetected: matchResult.amsDetected,
-									totalSlots: matchResult.totalSlots,
-									filamentMatches: matchResult.matches.map((m: MatchedFilamentProfile) => ({
-										type: m.type,
-										color: m.colour,
-										matchedSlot: m.matchedSlot,
-										matchQuality: m.matchQuality,
-										currentType: m.currentType,
-										currentColor: m.currentColor,
-									})),
-								} : {}),
+								...(autoDetect && matchResult
+									? {
+											autoDetected: true,
+											filamentsDetected: matchResult.matches.length,
+											amsMapping: amsMapping,
+											amsDetected: matchResult.amsDetected,
+											totalSlots: matchResult.totalSlots,
+											filamentMatches: matchResult.matches.map((m: MatchedFilamentProfile) => ({
+												type: m.type,
+												color: m.colour,
+												matchedSlot: m.matchedSlot,
+												matchQuality: m.matchQuality,
+												currentType: m.currentType,
+												currentColor: m.currentColor,
+											})),
+										}
+									: {}),
 							};
 						} else if (operation === 'pause') {
 							const command = commands.pausePrint();
@@ -856,11 +866,9 @@ export class BambuLab implements INodeType {
 
 					// Unknown resource
 					else {
-						throw new NodeOperationError(
-							this.getNode(),
-							`Unknown resource "${resource}"`,
-							{ itemIndex: i },
-						);
+						throw new NodeOperationError(this.getNode(), `Unknown resource "${resource}"`, {
+							itemIndex: i,
+						});
 					}
 
 					returnData.push({

@@ -1,10 +1,5 @@
 import { FilamentMatcher } from '../FilamentMatcher';
-import type {
-	FilamentProfile,
-	PrinterStatus,
-	AMSStatus,
-	FilamentMatchResult,
-} from '../types';
+import type { FilamentProfile, PrinterStatus, AMSStatus, FilamentMatchResult } from '../types';
 
 describe('FilamentMatcher', () => {
 	// Helper to create mock AMS status (new structure with ams.ams[] array)
@@ -49,15 +44,13 @@ describe('FilamentMatcher', () => {
 	describe('matchProfilesToAMS', () => {
 		it('should match single filament to correct slot', () => {
 			// Setup: Need black PETG, available in slot 2 (tray ID 1)
-			const profiles: FilamentProfile[] = [
-				createProfile(0, 'PETG', '#000000'),
-			];
+			const profiles: FilamentProfile[] = [createProfile(0, 'PETG', '#000000')];
 
 			const ams = createMockAMS([
 				{ id: '0', type: 'PETG', color: '#515151' }, // Gray
 				{ id: '1', type: 'PETG', color: '#000000' }, // Black
-				{ id: '2', type: 'PLA', color: '#68724D' },  // Green
-				{ id: '3', type: 'PLA', color: '#042F56' },  // Blue
+				{ id: '2', type: 'PLA', color: '#68724D' }, // Green
+				{ id: '3', type: 'PLA', color: '#042F56' }, // Blue
 			]);
 
 			const status = createMockStatus(ams);
@@ -87,8 +80,8 @@ describe('FilamentMatcher', () => {
 			const ams = createMockAMS([
 				{ id: '0', type: 'PETG', color: '#515151' }, // Gray - slot 1
 				{ id: '1', type: 'PETG', color: '#000000' }, // Black - slot 2
-				{ id: '2', type: 'PLA', color: '#68724D' },  // Green - slot 3
-				{ id: '3', type: 'PLA', color: '#042F56' },  // Blue - slot 4
+				{ id: '2', type: 'PLA', color: '#68724D' }, // Green - slot 3
+				{ id: '3', type: 'PLA', color: '#042F56' }, // Blue - slot 4
 			]);
 
 			const status = createMockStatus(ams);
@@ -108,14 +101,12 @@ describe('FilamentMatcher', () => {
 
 		it('should use first match when duplicate filaments exist', () => {
 			// Setup: Need black PETG, but it's in slots 2 AND 4
-			const profiles: FilamentProfile[] = [
-				createProfile(0, 'PETG', '#000000'),
-			];
+			const profiles: FilamentProfile[] = [createProfile(0, 'PETG', '#000000')];
 
 			const ams = createMockAMS([
 				{ id: '0', type: 'PETG', color: '#515151' }, // Gray - slot 1
 				{ id: '1', type: 'PETG', color: '#000000' }, // Black - slot 2 (FIRST)
-				{ id: '2', type: 'PLA', color: '#68724D' },  // Green - slot 3
+				{ id: '2', type: 'PLA', color: '#68724D' }, // Green - slot 3
 				{ id: '3', type: 'PETG', color: '#000000' }, // Black - slot 4 (DUPLICATE)
 			]);
 
@@ -172,9 +163,7 @@ describe('FilamentMatcher', () => {
 
 		it('should handle no AMS (external spool) scenario', () => {
 			// Setup: No AMS detected
-			const profiles: FilamentProfile[] = [
-				createProfile(0, 'PETG', '#000000'),
-			];
+			const profiles: FilamentProfile[] = [createProfile(0, 'PETG', '#000000')];
 
 			const status = createMockStatus(); // No AMS
 
@@ -193,9 +182,7 @@ describe('FilamentMatcher', () => {
 
 		it('should throw error when filament type not found in AMS', () => {
 			// Setup: Need TPU but only PETG and PLA available
-			const profiles: FilamentProfile[] = [
-				createProfile(0, 'TPU', '#000000'),
-			];
+			const profiles: FilamentProfile[] = [createProfile(0, 'TPU', '#000000')];
 
 			const ams = createMockAMS([
 				{ id: '0', type: 'PETG', color: '#515151' },
@@ -242,8 +229,8 @@ describe('FilamentMatcher', () => {
 			const ams = createMockAMS([
 				{ id: '0', type: 'PETG', color: '#515151' },
 				{ id: '1', type: 'PETG', color: '#000000' }, // Black PETG (wrong type)
-				{ id: '2', type: 'PLA', color: '#68724D' },  // Green PLA (wrong color)
-				{ id: '3', type: 'PLA', color: '#042F56' },  // Blue PLA (wrong color)
+				{ id: '2', type: 'PLA', color: '#68724D' }, // Green PLA (wrong color)
+				{ id: '3', type: 'PLA', color: '#042F56' }, // Blue PLA (wrong color)
 			]);
 
 			const status = createMockStatus(ams);
@@ -256,9 +243,7 @@ describe('FilamentMatcher', () => {
 
 		it('should handle empty AMS trays array', () => {
 			// Setup: AMS exists but no trays loaded
-			const profiles: FilamentProfile[] = [
-				createProfile(0, 'PETG', '#000000'),
-			];
+			const profiles: FilamentProfile[] = [createProfile(0, 'PETG', '#000000')];
 
 			const ams: AMSStatus = {
 				ams: [
@@ -302,7 +287,9 @@ describe('FilamentMatcher', () => {
 			// Execute & Verify error message format
 			expect(() => {
 				FilamentMatcher.matchProfilesToAMS(profiles, status);
-			}).toThrow(/Available: Slot 1: PETG \(#515151\), Slot 2: PETG \(#000000\), Slot 3: PLA \(#68724D\), Slot 4: PLA \(#042F56\)/);
+			}).toThrow(
+				/Available: Slot 1: PETG \(#515151\), Slot 2: PETG \(#000000\), Slot 3: PLA \(#68724D\), Slot 4: PLA \(#042F56\)/,
+			);
 		});
 	});
 });

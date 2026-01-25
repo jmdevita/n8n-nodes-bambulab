@@ -1,15 +1,11 @@
-import type {
-	ICredentialType,
-	INodeProperties,
-} from 'n8n-workflow';
+import type { ICredentialType, INodeProperties } from 'n8n-workflow';
 
 export class BambuLabApi implements ICredentialType {
 	name = 'bambuLabApi';
 
 	displayName = 'Bambu Lab API';
 
-	documentationUrl =
-		'https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode';
+	documentationUrl = 'https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode';
 
 	properties: INodeProperties[] = [
 		{
@@ -28,8 +24,7 @@ export class BambuLabApi implements ICredentialType {
 			default: '',
 			required: true,
 			placeholder: '12345678',
-			description:
-				'LAN access code from printer settings (Settings > Network > LAN Access Code)',
+			description: 'LAN access code from printer settings (Settings > Network > LAN Access Code)',
 		},
 		{
 			displayName: 'Serial Number',

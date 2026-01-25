@@ -39,15 +39,12 @@ export class BambuLabFtpClient {
 	 * Includes retry logic for transient connection failures
 	 */
 	async connect(): Promise<void> {
-		return RetryHelper.withConditionalRetry(
-			() => this.connectOnce(),
-			{
-				maxRetries: 2, // Try up to 3 times total (initial + 2 retries)
-				onRetry: (attempt, error) => {
-					console.warn(`FTP connection attempt ${attempt} failed: ${error.message}. Retrying...`);
-				},
-			}
-		);
+		return RetryHelper.withConditionalRetry(() => this.connectOnce(), {
+			maxRetries: 2, // Try up to 3 times total (initial + 2 retries)
+			onRetry: (attempt, error) => {
+				console.warn(`FTP connection attempt ${attempt} failed: ${error.message}. Retrying...`);
+			},
+		});
 	}
 
 	/**
@@ -77,7 +74,7 @@ export class BambuLabFtpClient {
 			throw ErrorHelper.ftpConnectionFailed(
 				this.credentials.printerIp,
 				this.credentials.ftpPort,
-				(error as Error).message
+				(error as Error).message,
 			);
 		}
 	}
@@ -243,9 +240,7 @@ export class BambuLabFtpClient {
 
 			await this.client.downloadTo(localPath, sanitizedRemotePath);
 		} catch (error) {
-			throw new Error(
-				`Failed to download file ${remoteFilePath}: ${(error as Error).message}`,
-			);
+			throw new Error(`Failed to download file ${remoteFilePath}: ${(error as Error).message}`);
 		}
 	}
 
@@ -332,9 +327,7 @@ export class BambuLabFtpClient {
 
 			await this.client.cd(sanitizedPath);
 		} catch (error) {
-			throw new Error(
-				`Failed to change directory to ${remotePath}: ${(error as Error).message}`,
-			);
+			throw new Error(`Failed to change directory to ${remotePath}: ${(error as Error).message}`);
 		}
 	}
 

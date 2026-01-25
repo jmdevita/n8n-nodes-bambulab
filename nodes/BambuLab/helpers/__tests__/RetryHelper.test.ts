@@ -27,7 +27,9 @@ describe('RetryHelper', () => {
 		it('should throw error after max retries', async () => {
 			const mockFn = jest.fn().mockRejectedValue(new Error('Always fails'));
 
-			await expect(RetryHelper.withRetry(mockFn, { maxRetries: 2 })).rejects.toThrow('Always fails');
+			await expect(RetryHelper.withRetry(mockFn, { maxRetries: 2 })).rejects.toThrow(
+				'Always fails',
+			);
 
 			expect(mockFn).toHaveBeenCalledTimes(3); // Initial + 2 retries
 		});
@@ -46,11 +48,7 @@ describe('RetryHelper', () => {
 			});
 
 			expect(onRetrySpy).toHaveBeenCalledTimes(1);
-			expect(onRetrySpy).toHaveBeenCalledWith(
-				1,
-				expect.any(Error),
-				expect.any(Number)
-			);
+			expect(onRetrySpy).toHaveBeenCalledWith(1, expect.any(Error), expect.any(Number));
 		});
 
 		it('should use exponential backoff', async () => {
@@ -109,7 +107,7 @@ describe('RetryHelper', () => {
 			const mockFn = jest.fn().mockRejectedValue(new Error('Authentication failed'));
 
 			await expect(RetryHelper.withConditionalRetry(mockFn)).rejects.toThrow(
-				'Authentication failed'
+				'Authentication failed',
 			);
 
 			expect(mockFn).toHaveBeenCalledTimes(1);

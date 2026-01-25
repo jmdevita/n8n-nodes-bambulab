@@ -94,7 +94,7 @@ export class PathValidator {
 			);
 		}
 
-// Remove null bytes (path poisoning attack)
+		// Remove null bytes (path poisoning attack)
 		let sanitized = userPath.replace(/\0/g, '');
 
 		// Decode URL encoding to prevent bypasses (%2e%2e%2f => ../)
@@ -258,7 +258,7 @@ export class PathValidator {
 
 		// Block filenames starting with . (hidden files)
 		// No exceptions for filenames
-		if (sanitized.startsWith('.') ) {
+		if (sanitized.startsWith('.')) {
 			throw new Error('Hidden filenames (starting with ".") are not allowed');
 		}
 

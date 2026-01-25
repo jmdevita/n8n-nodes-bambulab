@@ -30,9 +30,7 @@ export class BambuLabCommands {
 	startPrint(fileName: string, options?: PrintCommandOptions): PrintCommand {
 		// Ensure filename has proper path format for A1 series
 		// A1 uses /sdcard/, X1/P1 typically use root or /cache/
-		const fileUrl = fileName.startsWith('file:///')
-			? fileName
-			: `file:///sdcard/${fileName}`;
+		const fileUrl = fileName.startsWith('file:///') ? fileName : `file:///sdcard/${fileName}`;
 
 		// Extract just the filename (not the full path) for display
 		const displayName = fileName.split('/').pop() || fileName;
@@ -62,7 +60,7 @@ export class BambuLabCommands {
 				use_ams: options?.useAMS ?? true,
 				// Default to [0] (slot 1 for AMS, or external spool tray 0)
 				// Works for both use_ams true and false
-				ams_mapping: options?.amsMapping ?? [0]
+				ams_mapping: options?.amsMapping ?? [0],
 			},
 		};
 	}

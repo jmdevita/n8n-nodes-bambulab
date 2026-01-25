@@ -146,10 +146,7 @@ export class RetryHelper {
 				const maxDelay = options.maxDelay ?? RETRY_CONFIG.MAX_DELAY;
 				const backoffMultiplier = options.backoffMultiplier ?? RETRY_CONFIG.BACKOFF_MULTIPLIER;
 
-				const delay = Math.min(
-					initialDelay * Math.pow(backoffMultiplier, attempt - 1),
-					maxDelay
-				);
+				const delay = Math.min(initialDelay * Math.pow(backoffMultiplier, attempt - 1), maxDelay);
 
 				if (options.onRetry) {
 					options.onRetry(attempt, err, delay);
