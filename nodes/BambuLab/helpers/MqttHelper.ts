@@ -59,6 +59,16 @@ export class BambuLabMqttClient {
 	 * Internal method for single connection attempt
 	 */
 	private async connectOnce(): Promise<void> {
+		// Clean up any existing client before creating a new one (prevents orphaned connections)
+		if (this.client) {
+			try {
+				this.client.end(true);
+			} catch {
+				// Ignore cleanup errors
+			}
+			this.client = null;
+		}
+
 		return new Promise((resolve, reject) => {
 			const protocol = this.credentials.useTls ? 'mqtts' : 'mqtt';
 			const brokerUrl = `${protocol}://${this.credentials.printerIp}:${this.credentials.mqttPort}`;
@@ -74,13 +84,24 @@ export class BambuLabMqttClient {
 				reconnectPeriod: 0, // Disable auto-reconnect, we'll handle it manually
 			};
 
+			let settled = false;
+			const settleOnce = (fn: () => void) => {
+				if (!settled) {
+					settled = true;
+					fn();
+				}
+			};
+
 			try {
 				this.client = mqtt.connect(brokerUrl, options);
 
 				// Connection timeout
 				const timeout = setTimeout(() => {
-					this.client?.end(true);
-					reject(ErrorHelper.mqttConnectionTimeout(this.connectionTimeout));
+					settleOnce(() => {
+						this.client?.end(true);
+						this.client = null;
+						reject(ErrorHelper.mqttConnectionTimeout(this.connectionTimeout));
+					});
 				}, this.connectionTimeout);
 
 				// Connection successful
@@ -89,17 +110,35 @@ export class BambuLabMqttClient {
 					// Subscribe to printer reports
 					this.client?.subscribe(this.reportTopic, (err) => {
 						if (err) {
-							reject(new Error(`Failed to subscribe to ${this.reportTopic}: ${err.message}`));
+							settleOnce(() => {
+								this.client?.end(true);
+								this.client = null;
+								reject(new Error(`Failed to subscribe to ${this.reportTopic}: ${err.message}`));
+							});
 						} else {
-							resolve();
+							settleOnce(() => resolve());
 						}
 					});
 				});
 
-				// Connection error
+				// Connection error - also close the client to prevent zombie connections
 				this.client.on('error', (error) => {
 					clearTimeout(timeout);
-					reject(new Error(`MQTT connection error: ${error.message}`));
+					settleOnce(() => {
+						this.client?.end(true);
+						this.client = null;
+						reject(new Error(`MQTT connection error: ${error.message}`));
+					});
+				});
+
+				// Handle stream close (catches socket errors that don't emit 'error')
+				// Note: Don't call end() here - the stream is already closed at this point
+				this.client.on('close', () => {
+					clearTimeout(timeout);
+					settleOnce(() => {
+						this.client = null;
+						reject(new Error('MQTT connection closed unexpectedly'));
+					});
 				});
 
 				// Handle incoming messages
