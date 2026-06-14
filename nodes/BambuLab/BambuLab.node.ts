@@ -140,6 +140,29 @@ export class BambuLab implements INodeType {
 					'Name of the .3mf file on the printer (e.g., model.3mf or model.gcode.3mf). Must be a sliced project file exported from Bambu Studio.',
 			},
 
+			// Print: Start - Bed Type (promoted to top-level for visibility)
+			{
+				displayName: 'Bed Type',
+				name: 'bedType',
+				type: 'options',
+				displayOptions: {
+					show: {
+						resource: ['print'],
+						operation: ['start'],
+					},
+				},
+				default: 'auto',
+				description:
+					'Type of build plate installed. Use "Auto" to let the printer detect (recommended for X1 series); choose a specific plate if auto-detection fails to match.',
+				options: [
+					{ name: 'Auto', value: 'auto' },
+					{ name: 'Cool Plate', value: 'cool_plate' },
+					{ name: 'Engineering Plate', value: 'eng_plate' },
+					{ name: 'High Temp Plate', value: 'hot_plate' },
+					{ name: 'Textured PEI Plate', value: 'textured_plate' },
+				],
+			},
+
 			// Print: Start - Options
 			{
 				displayName: 'Additional Options',
@@ -223,21 +246,6 @@ export class BambuLab implements INodeType {
 								useAMS: [true],
 							},
 						},
-					},
-					{
-						displayName: 'Bed Type',
-						name: 'bedType',
-						type: 'options',
-						default: 'auto',
-						description:
-							'Type of build plate installed. Use "auto" to let the printer detect (recommended for X1 series); choose a specific plate if auto detection fails to match.',
-						options: [
-							{ name: 'Auto', value: 'auto' },
-							{ name: 'Cool Plate', value: 'cool_plate' },
-							{ name: 'Engineering Plate', value: 'eng_plate' },
-							{ name: 'High Temp Plate', value: 'hot_plate' },
-							{ name: 'Textured PEI Plate', value: 'textured_plate' },
-						],
 					},
 				],
 			},
@@ -712,9 +720,10 @@ export class BambuLab implements INodeType {
 							}
 
 							// Build and send command
+							const bedType = this.getNodeParameter('bedType', i, 'auto') as string;
 							const command = commands.startPrint(fileName, {
 								bedLeveling: options.bedLeveling as boolean | undefined,
-								bedType: options.bedType as string | undefined,
+								bedType,
 								flowCalibration: options.flowCalibration as boolean | undefined,
 								vibrationCalibration: options.vibrationCalibration as boolean | undefined,
 								layerInspect: options.layerInspect as boolean | undefined,
