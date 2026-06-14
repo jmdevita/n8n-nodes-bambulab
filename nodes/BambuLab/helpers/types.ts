@@ -291,6 +291,7 @@ export interface PrintJobOptions {
 // Subset of PrintJobOptions used for command generation (after UI string parsing)
 export interface PrintCommandOptions {
 	bedLeveling?: boolean;
+	bedType?: string;
 	flowCalibration?: boolean;
 	vibrationCalibration?: boolean;
 	layerInspect?: boolean;

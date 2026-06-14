@@ -153,14 +153,17 @@ export class FilamentProfileParser {
 	 * - "1,3,4" -> [1, 3, 4]
 	 */
 	private static parseSlotUsage(value: string): number[] {
+		// Bambu printers support up to 16 AMS slots — A1 series has 1 unit
+		// (4 slots), X1/P1 series can chain up to 4 AMS units (16 slots total).
+		const MAX_SLOTS = 16;
 		const slots = value
 			.split(',')
 			.map((s) => s.trim())
 			.filter((s) => s !== '')
 			.map((s) => {
 				const num = parseInt(s, 10);
-				if (isNaN(num) || num < 1 || num > 4) {
-					throw new Error(`Invalid AMS slot number: "${s}". Must be 1-4 for A1 series.`);
+				if (isNaN(num) || num < 1 || num > MAX_SLOTS) {
+					throw new Error(`Invalid AMS slot number: "${s}". Must be 1-${MAX_SLOTS}.`);
 				}
 				return num;
 			});

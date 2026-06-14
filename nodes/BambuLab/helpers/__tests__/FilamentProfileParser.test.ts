@@ -186,8 +186,10 @@ describe('FilamentProfileParser', () => {
 		});
 
 		it('should throw error for invalid slot numbers', () => {
+			// X1/P1 series support up to 16 slots across 4 chained AMS units —
+			// slot 17 is out of range for any printer.
 			const gcode = `
-; filament: 1,5
+; filament: 1,17
 ; filament_type = PLA;PLA
 ; filament_colour = #FF0000;#00FF00
 			`.trim();
@@ -196,7 +198,23 @@ describe('FilamentProfileParser', () => {
 
 			expect(() => {
 				FilamentProfileParser.parseFromBuffer(buffer);
-			}).toThrow(/Invalid AMS slot number.*Must be 1-4/);
+			}).toThrow(/Invalid AMS slot number.*Must be 1-16/);
+		});
+
+		it('should accept slot numbers up to 16 (multi-AMS X1/P1)', () => {
+			const profileCount = 16;
+			const types = Array(profileCount).fill('PLA').join(';');
+			const colours = Array(profileCount).fill('#FF0000').join(';');
+			const gcode = `
+; filament: 1,16
+; filament_type = ${types}
+; filament_colour = ${colours}
+			`.trim();
+
+			const buffer = createMock3MF(gcode);
+			const data = FilamentProfileParser.parseFromBuffer(buffer);
+			expect(data.profiles).toHaveLength(2);
+			expect(data.profiles[1].slotNumber).toBe(16);
 		});
 
 		it('should throw error when slot references non-existent profile', () => {

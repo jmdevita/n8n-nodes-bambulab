@@ -51,11 +51,11 @@ describe('PathValidator', () => {
 				);
 			});
 
-			it('should block double-encoded traversal', () => {
-				// %252e = %2e (double encoded)
-				expect(() => PathValidator.sanitizePath('%252e%252e%252f')).toThrow(
-					/Path traversal|Relative paths/,
-				);
+			it('should allow filenames containing literal % (no URL decoding)', () => {
+				// Slicer output like "100%_strength.3mf" was being mangled by
+				// blanket URL-decoding. Now it passes through unchanged.
+				expect(PathValidator.sanitizePath('100%_strength.3mf')).toBe('100%_strength.3mf');
+				expect(PathValidator.sanitizePath('model%20test.3mf')).toBe('model%20test.3mf');
 			});
 		});
 

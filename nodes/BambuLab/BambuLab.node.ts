@@ -214,15 +214,30 @@ export class BambuLab implements INodeType {
 						displayName: 'AMS Mapping',
 						name: 'amsMapping',
 						type: 'string',
-						default: '0',
+						default: '',
 						description:
-							'Comma-separated tray IDs mapping to filament profiles in the .3mf file. Each position corresponds to a profile from the slicer in order. Use -1 for unused profiles. Example: "0" for single filament in slot 1, or "2,-1,0" for 3 profiles where first uses slot 3, second is unused, third uses slot 1. For A1 series: 0-3 = AMS slots 1-4.',
+							'Comma-separated tray IDs mapping to filament profiles in the .3mf file. Each position corresponds to a profile from the slicer in order. Use -1 for unused profiles. Example: "0" for single filament in slot 1, or "2,-1,0" for 3 profiles where first uses slot 3, second is unused, third uses slot 1. Leave blank to use the mapping embedded in the .3mf file by the slicer (recommended). For A1 series: 0-3 = AMS slots 1-4.',
 						displayOptions: {
 							show: {
 								autoDetectFilaments: [false],
 								useAMS: [true],
 							},
 						},
+					},
+					{
+						displayName: 'Bed Type',
+						name: 'bedType',
+						type: 'options',
+						default: 'auto',
+						description:
+							'Type of build plate installed. Use "auto" to let the printer detect (recommended for X1 series); choose a specific plate if auto detection fails to match.',
+						options: [
+							{ name: 'Auto', value: 'auto' },
+							{ name: 'Cool Plate', value: 'cool_plate' },
+							{ name: 'Engineering Plate', value: 'eng_plate' },
+							{ name: 'High Temp Plate', value: 'hot_plate' },
+							{ name: 'Textured PEI Plate', value: 'textured_plate' },
+						],
 					},
 				],
 			},
@@ -611,21 +626,27 @@ export class BambuLab implements INodeType {
 
 							if (autoDetect) {
 								// ==================== AUTO-DETECT MODE ====================
+								// Use a dedicated FTP client for the download; ensure it's always closed
+								// even if download/parsing throws, to avoid leaking the printer's
+								// limited FTP connection slots.
+								const detectFtpClient = new BambuLabFtpClient(credentials);
 								try {
-									// Step 1: Download .3mf file from printer via FTP
-									const ftpClient = new BambuLabFtpClient(credentials);
-									await ftpClient.connect();
+									let fileBuffer: Buffer;
+									try {
+										await detectFtpClient.connect();
 
-									// FTP path: Files are in root directory (/), not /sdcard/
-									// MQTT uses file:///sdcard/ but FTP exposes files at root
-									// Sanitize fileName to prevent path traversal attacks
-									const sanitizedFileName = PathValidator.sanitizePath(fileName);
-									const remotePath = sanitizedFileName.startsWith('/')
-										? sanitizedFileName
-										: `/${sanitizedFileName}`;
+										// FTP path: Files are in root directory (/), not /sdcard/
+										// MQTT uses file:///sdcard/ but FTP exposes files at root
+										// Sanitize fileName to prevent path traversal attacks
+										const sanitizedFileName = PathValidator.sanitizePath(fileName);
+										const remotePath = sanitizedFileName.startsWith('/')
+											? sanitizedFileName
+											: `/${sanitizedFileName}`;
 
-									const fileBuffer = await ftpClient.downloadFileAsBuffer(remotePath);
-									ftpClient.disconnect();
+										fileBuffer = await detectFtpClient.downloadFileAsBuffer(remotePath);
+									} finally {
+										detectFtpClient.disconnect();
+									}
 
 									// Step 2: Parse filament profiles from .3mf
 									const parsedData = FilamentProfileParser.parseFromBuffer(fileBuffer);
@@ -693,6 +714,7 @@ export class BambuLab implements INodeType {
 							// Build and send command
 							const command = commands.startPrint(fileName, {
 								bedLeveling: options.bedLeveling as boolean | undefined,
+								bedType: options.bedType as string | undefined,
 								flowCalibration: options.flowCalibration as boolean | undefined,
 								vibrationCalibration: options.vibrationCalibration as boolean | undefined,
 								layerInspect: options.layerInspect as boolean | undefined,
@@ -819,7 +841,7 @@ export class BambuLab implements INodeType {
 					else if (resource === 'camera') {
 						if (operation === 'getStreamUrl') {
 							responseData = {
-								rtsp: `rtsp://bblp:${credentials.accessCode}@${credentials.printerIp}/streaming/live/1`,
+								rtsp: `rtsp://bblp:${encodeURIComponent(credentials.accessCode)}@${credentials.printerIp}/streaming/live/1`,
 								http: `http://${credentials.printerIp}:6000/stream`,
 							};
 						} else if (operation === 'getSnapshot') {

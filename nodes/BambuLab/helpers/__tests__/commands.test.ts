@@ -28,8 +28,33 @@ describe('BambuLabCommands', () => {
 			expect(command.print.layer_inspect).toBe(false);
 			expect(command.print.timelapse).toBe(false);
 			expect(command.print.use_ams).toBe(true); // Default is true
-			expect(command.print.ams_mapping).toEqual([0]); // Default to slot 1 (tray id 0)
+			// With AMS enabled and no explicit mapping, send [] so the printer
+			// reads the slot mapping embedded in the .3mf by the slicer.
+			expect(command.print.ams_mapping).toEqual([]);
 			expect(command.print.sequence_id).toBeDefined();
+		});
+
+		it('should default ams_mapping to [0] when AMS is disabled', () => {
+			const command = commands.startPrint('model.3mf', { useAMS: false });
+
+			expect(command.print.use_ams).toBe(false);
+			// External spool tray
+			expect(command.print.ams_mapping).toEqual([0]);
+		});
+
+		it('should respect an explicit amsMapping override', () => {
+			const command = commands.startPrint('model.3mf', { amsMapping: [2, 0, 1] });
+			expect(command.print.ams_mapping).toEqual([2, 0, 1]);
+		});
+
+		it('should default bed_type to "auto"', () => {
+			const command = commands.startPrint('model.3mf');
+			expect(command.print.bed_type).toBe('auto');
+		});
+
+		it('should respect an explicit bedType override', () => {
+			const command = commands.startPrint('model.3mf', { bedType: 'textured_plate' });
+			expect(command.print.bed_type).toBe('textured_plate');
 		});
 
 		it('should create a start print command with custom options', () => {
@@ -189,26 +214,37 @@ describe('BambuLabCommands', () => {
 	});
 
 	describe('sequence ID management', () => {
-		it('should increment sequence ID for each command', () => {
+		it('should increment sequence ID counter for each command', () => {
 			const command1 = commands.pausePrint();
 			const command2 = commands.resumePrint();
 			const command3 = commands.stopPrint();
 
-			const id1 = parseInt(command1.print.sequence_id);
-			const id2 = parseInt(command2.print.sequence_id);
-			const id3 = parseInt(command3.print.sequence_id);
+			// IDs are now "<prefix>-<counter>" so we compare the counter suffix.
+			const suffix = (id: string) => parseInt(id.split('-')[1], 10);
+			const id1 = suffix(command1.print.sequence_id);
+			const id2 = suffix(command2.print.sequence_id);
+			const id3 = suffix(command3.print.sequence_id);
 
 			expect(id2).toBe(id1 + 1);
 			expect(id3).toBe(id2 + 1);
 		});
 
-		it('should reset sequence ID', () => {
+		it('should use distinct prefixes per instance so concurrent runs do not collide', () => {
+			const other = new BambuLabCommands();
+			const a = commands.pausePrint().print.sequence_id.split('-')[0];
+			const b = other.pausePrint().print.sequence_id.split('-')[0];
+			// Random collisions are possible but vanishingly rare; with 16 bits
+			// the false-failure rate is ~1/65536. Good enough for a regression test.
+			expect(a).not.toBe(b);
+		});
+
+		it('should reset sequence ID counter', () => {
 			commands.pausePrint();
 			commands.resumePrint();
 			commands.resetSequenceId();
 
 			const command = commands.pausePrint();
-			expect(command.print.sequence_id).toBe('0');
+			expect(command.print.sequence_id.endsWith('-0')).toBe(true);
 		});
 
 		it('should get current sequence ID', () => {

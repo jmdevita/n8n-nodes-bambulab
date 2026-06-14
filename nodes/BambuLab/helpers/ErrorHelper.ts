@@ -142,10 +142,12 @@ export class ErrorHelper {
 	}
 
 	/**
-	 * Wrap an error with additional context
+	 * Wrap an error with additional context, preserving the original via `cause`
+	 * so downstream code (e.g. retry classification) can still read the underlying
+	 * Node error code.
 	 */
 	static wrapError(error: Error, context: string): Error {
-		const wrappedError = new Error(`${context}: ${error.message}`);
+		const wrappedError = new Error(`${context}: ${error.message}`, { cause: error });
 		wrappedError.stack = error.stack;
 		return wrappedError;
 	}

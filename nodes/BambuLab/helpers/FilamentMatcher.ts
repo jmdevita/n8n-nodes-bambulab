@@ -120,8 +120,13 @@ export class FilamentMatcher {
 
 			// Check for exact match (type AND color)
 			if (trayType === normalizedProfileType && trayColor === normalizedProfileColor) {
-				// Found exact match - use it (first match if duplicates exist)
-				const trayId = parseInt(tray.id || '0', 10);
+				// A tray without a parseable id can't be addressed in ams_mapping —
+				// skip rather than silently defaulting to slot 0, which would mis-route
+				// the load to slot 1 and load the wrong filament.
+				const trayId = parseInt(tray.id ?? '', 10);
+				if (Number.isNaN(trayId)) {
+					continue;
+				}
 				return {
 					...profile,
 					matchedSlot: trayId + 1, // Convert 0-indexed to 1-indexed for display
@@ -191,10 +196,11 @@ export class FilamentMatcher {
 
 		return trays
 			.map((tray) => {
-				const slot = parseInt(tray.id || '0', 10) + 1;
+				const trayId = parseInt(tray.id ?? '', 10);
+				const slotLabel = Number.isNaN(trayId) ? '?' : (trayId + 1).toString();
 				const type = tray.tray_type || 'Unknown';
 				const color = tray.tray_color || 'Unknown';
-				return `Slot ${slot}: ${type} (${color})`;
+				return `Slot ${slotLabel}: ${type} (${color})`;
 			})
 			.join(', ');
 	}

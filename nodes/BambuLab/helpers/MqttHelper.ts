@@ -36,6 +36,10 @@ export class BambuLabMqttClient {
 
 	private parseErrorHistory: Array<{ timestamp: Date; error: Error }> = [];
 
+	// Track active polling timers so disconnect can clear them and stop leaks
+	// when an awaited promise is abandoned (e.g. workflow cancel).
+	private activeTimers = new Set<NodeJS.Timeout>();
+
 	constructor(credentials: BambuLabCredentials) {
 		this.credentials = credentials;
 		this.reportTopic = `device/${credentials.serialNumber}/report`;
@@ -62,6 +66,7 @@ export class BambuLabMqttClient {
 		// Clean up any existing client before creating a new one (prevents orphaned connections)
 		if (this.client) {
 			try {
+				this.client.removeAllListeners();
 				this.client.end(true);
 			} catch {
 				// Ignore cleanup errors
@@ -94,55 +99,10 @@ export class BambuLabMqttClient {
 
 			try {
 				this.client = mqtt.connect(brokerUrl, options);
+				const client = this.client; // Capture so handlers reference the same instance
 
-				// Connection timeout
-				const timeout = setTimeout(() => {
-					settleOnce(() => {
-						this.client?.end(true);
-						this.client = null;
-						reject(ErrorHelper.mqttConnectionTimeout(this.connectionTimeout));
-					});
-				}, this.connectionTimeout);
-
-				// Connection successful
-				this.client.on('connect', () => {
-					clearTimeout(timeout);
-					// Subscribe to printer reports
-					this.client?.subscribe(this.reportTopic, (err) => {
-						if (err) {
-							settleOnce(() => {
-								this.client?.end(true);
-								this.client = null;
-								reject(new Error(`Failed to subscribe to ${this.reportTopic}: ${err.message}`));
-							});
-						} else {
-							settleOnce(() => resolve());
-						}
-					});
-				});
-
-				// Connection error - also close the client to prevent zombie connections
-				this.client.on('error', (error) => {
-					clearTimeout(timeout);
-					settleOnce(() => {
-						this.client?.end(true);
-						this.client = null;
-						reject(new Error(`MQTT connection error: ${error.message}`));
-					});
-				});
-
-				// Handle stream close (catches socket errors that don't emit 'error')
-				// Note: Don't call end() here - the stream is already closed at this point
-				this.client.on('close', () => {
-					clearTimeout(timeout);
-					settleOnce(() => {
-						this.client = null;
-						reject(new Error('MQTT connection closed unexpectedly'));
-					});
-				});
-
-				// Handle incoming messages
-				this.client.on('message', (topic, message) => {
+				// Always-on message handler (active before and after connect)
+				const onMessage = (topic: string, message: Buffer) => {
 					try {
 						const parsedMessage = JSON.parse(message.toString()) as MQTTMessage;
 
@@ -172,6 +132,77 @@ export class BambuLabMqttClient {
 
 						console.error('Failed to parse MQTT message:', parseError.message);
 					}
+				};
+				client.on('message', onMessage);
+
+				// Connection timeout (only fires if connect never completes)
+				const timeout = setTimeout(() => {
+					settleOnce(() => {
+						client.removeAllListeners();
+						client.end(true);
+						if (this.client === client) {
+							this.client = null;
+						}
+						reject(ErrorHelper.mqttConnectionTimeout(this.connectionTimeout));
+					});
+				}, this.connectionTimeout);
+
+				// Connect-only handlers — rejected if anything goes wrong before subscribe ACKs.
+				// After subscribe succeeds, we detach these and install runtime handlers that
+				// don't null out this.client mid-operation.
+				const onConnectError = (error: Error) => {
+					clearTimeout(timeout);
+					settleOnce(() => {
+						client.removeAllListeners();
+						client.end(true);
+						if (this.client === client) {
+							this.client = null;
+						}
+						reject(new Error(`MQTT connection error: ${error.message}`));
+					});
+				};
+				const onConnectClose = () => {
+					clearTimeout(timeout);
+					settleOnce(() => {
+						if (this.client === client) {
+							this.client = null;
+						}
+						reject(new Error('MQTT connection closed unexpectedly'));
+					});
+				};
+				client.on('error', onConnectError);
+				client.on('close', onConnectClose);
+
+				// Connection successful
+				client.on('connect', () => {
+					// Subscribe to printer reports
+					client.subscribe(this.reportTopic, (err) => {
+						if (err) {
+							clearTimeout(timeout);
+							settleOnce(() => {
+								client.removeAllListeners();
+								client.end(true);
+								if (this.client === client) {
+									this.client = null;
+								}
+								reject(new Error(`Failed to subscribe to ${this.reportTopic}: ${err.message}`));
+							});
+							return;
+						}
+
+						clearTimeout(timeout);
+						// Swap connect-only handlers for runtime handlers so a later
+						// broker-initiated close doesn't null out this.client mid-operation.
+						client.removeListener('error', onConnectError);
+						client.removeListener('close', onConnectClose);
+
+						client.on('error', (error) => {
+							// Surface errors without tearing down — disconnect() owns lifecycle.
+							console.warn(`MQTT runtime error: ${error.message}`);
+						});
+
+						settleOnce(() => resolve());
+					});
 				});
 			} catch (error) {
 				reject(new Error(`Failed to create MQTT client: ${(error as Error).message}`));
@@ -219,55 +250,64 @@ export class BambuLabMqttClient {
 			};
 		}
 
-		// Wait for printer response (not publish callback)
+		// Wait for printer response strictly matching sequence_id.
+		// The Bambu protocol streams continuous status updates; the "take last
+		// message" fallback used to return unrelated status as the ACK. We
+		// require an exact sequence_id match and reject on timeout.
 		return new Promise((resolve, reject) => {
 			let timeout: NodeJS.Timeout | null = null;
 			let checkInterval: NodeJS.Timeout | null = null;
 
 			const cleanup = () => {
-				if (timeout) clearTimeout(timeout);
-				if (checkInterval) clearInterval(checkInterval);
+				if (timeout) {
+					clearTimeout(timeout);
+					this.activeTimers.delete(timeout);
+				}
+				if (checkInterval) {
+					clearInterval(checkInterval);
+					this.activeTimers.delete(checkInterval);
+				}
 			};
 
 			timeout = setTimeout(() => {
 				cleanup();
 				reject(ErrorHelper.commandResponseTimeout(this.responseTimeout));
 			}, this.responseTimeout);
+			this.activeTimers.add(timeout);
 
-			// Poll for response in message buffer (optimized interval)
+			// Poll for a sequence_id-matched response. Without a sequence_id we
+			// can't correlate at all, so just resolve as fire-and-forget.
+			if (!commandSeqId) {
+				cleanup();
+				resolve({
+					success: true,
+					message: 'Command sent (no sequence_id to correlate response)',
+				});
+				return;
+			}
+
 			checkInterval = setInterval(() => {
-				if (this.messageBuffer.length > 0) {
-					let response: MQTTMessage | undefined;
+				if (this.messageBuffer.length === 0) return;
 
-					// If we have a sequence ID, try to find matching response
-					if (commandSeqId) {
-						response = this.messageBuffer.find(
-							(msg) =>
-								msg.print?.sequence_id === commandSeqId ||
-								msg.pushing?.sequence_id === commandSeqId ||
-								msg.system?.sequence_id === commandSeqId ||
-								msg.gcode_line?.sequence_id === commandSeqId,
-						);
-					}
+				const response = this.messageBuffer.find(
+					(msg) =>
+						msg.print?.sequence_id === commandSeqId ||
+						msg.pushing?.sequence_id === commandSeqId ||
+						msg.system?.sequence_id === commandSeqId ||
+						msg.gcode_line?.sequence_id === commandSeqId,
+				);
 
-					// Fallback: if no sequence ID or no match found, take the last message
-					if (!response) {
-						response = this.messageBuffer[this.messageBuffer.length - 1];
-					}
-
-					// If we found a response, return it
-					if (response) {
-						cleanup();
-						this.messageBuffer = [];
-
-						resolve({
-							success: true,
-							message: 'Command executed and response received',
-							data: response,
-						});
-					}
+				if (response) {
+					cleanup();
+					resolve({
+						success: true,
+						message: 'Command executed and response received',
+						data: response,
+						sequence_id: commandSeqId,
+					});
 				}
-			}, INTERVALS.MESSAGE_POLL); // Optimized from 100ms to 250ms
+			}, INTERVALS.MESSAGE_POLL);
+			this.activeTimers.add(checkInterval);
 		});
 	}
 
@@ -303,49 +343,38 @@ export class BambuLabMqttClient {
 			let checkInterval: NodeJS.Timeout | null = null;
 
 			const cleanup = () => {
-				if (timeout) clearTimeout(timeout);
-				if (checkInterval) clearInterval(checkInterval);
+				if (timeout) {
+					clearTimeout(timeout);
+					this.activeTimers.delete(timeout);
+				}
+				if (checkInterval) {
+					clearInterval(checkInterval);
+					this.activeTimers.delete(checkInterval);
+				}
 			};
 
 			timeout = setTimeout(() => {
 				cleanup();
 				reject(ErrorHelper.statusTimeout(this.responseTimeout));
 			}, this.responseTimeout);
-
-			// Poll for response in message buffer (optimized interval)
-			const expectedSeqId = pushCommand.pushing.sequence_id;
+			this.activeTimers.add(timeout);
 
 			checkInterval = setInterval(() => {
-				if (this.messageBuffer.length > 0) {
-					let status: PrinterStatus | undefined;
+				if (this.messageBuffer.length === 0) return;
 
-					// Prefer messages that have AMS data (more complete status)
-					// This ensures we get the full printer state, not just a partial update
-					status = this.messageBuffer.find((msg) => (msg as any).print?.ams !== undefined) as
-						| PrinterStatus
-						| undefined;
+				// Prefer messages with AMS data — that's the full status payload
+				// the pushall request asks for. Status reports without AMS are
+				// partial telemetry and don't contain the data the caller wants.
+				const status = this.messageBuffer.find(
+					(msg) => (msg as any).print?.ams !== undefined,
+				) as PrinterStatus | undefined;
 
-					// Fallback: if no AMS data found, try matching sequence ID
-					if (!status) {
-						status = this.messageBuffer.find(
-							(msg) => msg.pushing?.sequence_id === expectedSeqId,
-						) as PrinterStatus | undefined;
-					}
-
-					// Final fallback: take the last message
-					if (!status) {
-						status = this.messageBuffer[this.messageBuffer.length - 1] as PrinterStatus;
-					}
-
-					// If we found a status, return it
-					if (status) {
-						cleanup();
-						this.messageBuffer = [];
-
-						resolve(status);
-					}
+				if (status) {
+					cleanup();
+					resolve(status);
 				}
-			}, INTERVALS.MESSAGE_POLL); // Optimized from 100ms to 250ms
+			}, INTERVALS.MESSAGE_POLL);
+			this.activeTimers.add(checkInterval);
 		});
 	}
 
@@ -401,10 +430,24 @@ export class BambuLabMqttClient {
 	}
 
 	/**
+	 * Clear all tracked polling timers. Called on disconnect to stop pollers
+	 * whose awaiting promises have been abandoned.
+	 */
+	private clearActiveTimers(): void {
+		for (const timer of this.activeTimers) {
+			clearTimeout(timer);
+			clearInterval(timer);
+		}
+		this.activeTimers.clear();
+	}
+
+	/**
 	 * Disconnect from the printer with timeout
 	 * Attempts graceful disconnect, but falls back to force disconnect if callback doesn't fire
 	 */
 	async disconnect(): Promise<void> {
+		this.clearActiveTimers();
+
 		if (!this.client) {
 			return;
 		}
@@ -417,6 +460,7 @@ export class BambuLabMqttClient {
 			const timeout = setTimeout(() => {
 				if (!disconnected && this.client) {
 					console.warn('Graceful disconnect timeout, forcing disconnect');
+					this.client.removeAllListeners();
 					this.client.end(true); // Force close
 					this.client = null;
 					this.messageBuffer = [];
@@ -428,9 +472,10 @@ export class BambuLabMqttClient {
 			// Try graceful disconnect
 			try {
 				if (this.client) {
-					this.client.end(false, {}, () => {
+					this.client.end(false, undefined, () => {
 						if (!disconnected) {
 							clearTimeout(timeout);
+							this.client?.removeAllListeners();
 							this.client = null;
 							this.messageBuffer = [];
 							disconnected = true;
@@ -445,6 +490,7 @@ export class BambuLabMqttClient {
 				// If graceful fails, force disconnect
 				clearTimeout(timeout);
 				if (!disconnected && this.client) {
+					this.client.removeAllListeners();
 					this.client.end(true);
 					this.client = null;
 					this.messageBuffer = [];
@@ -459,7 +505,9 @@ export class BambuLabMqttClient {
 	 * Force disconnect (immediate)
 	 */
 	forceDisconnect(): void {
+		this.clearActiveTimers();
 		if (this.client) {
+			this.client.removeAllListeners();
 			this.client.end(true);
 			this.client = null;
 			this.messageBuffer = [];

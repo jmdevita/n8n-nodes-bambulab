@@ -95,15 +95,17 @@ export class PathValidator {
 		}
 
 		// Remove null bytes (path poisoning attack)
-		let sanitized = userPath.replace(/\0/g, '');
+		const sanitized = userPath.replace(/\0/g, '');
 
-		// Decode URL encoding to prevent bypasses (%2e%2e%2f => ../)
-		// Decode twice to catch double-encoded attacks (%252e => %2e => .)
-		try {
-			sanitized = decodeURIComponent(sanitized);
-			sanitized = decodeURIComponent(sanitized);
-		} catch (error) {
-			// Invalid URL encoding - proceed with current value
+		// Reject URL-encoded traversal sequences without decoding the whole path —
+		// blanket decodeURIComponent mangles legitimate filenames containing literal
+		// "%" (e.g. "model%20test.3mf" would become "model test.3mf"). The printer's
+		// FTP root doesn't decode percent-escapes, so we just block the dangerous
+		// sequences instead.
+		if (/%2[eE]/.test(sanitized) || /%2[fF]/.test(sanitized) || /%5[cC]/.test(sanitized)) {
+			throw new Error(
+				'Path traversal detected. URL-encoded path components (%2e, %2f, %5c) are not allowed.',
+			);
 		}
 
 		// Check for relative path indicators before normalization

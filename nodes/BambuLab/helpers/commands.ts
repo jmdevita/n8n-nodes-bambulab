@@ -13,13 +13,24 @@ import type {
  * Generates properly formatted commands with sequence IDs
  */
 export class BambuLabCommands {
+	// Instance-scoped counter combined with a per-instance prefix so concurrent
+	// executions don't collide on sequence_id "0" / "1" / etc.
 	private sequenceId = 0;
+	private readonly idPrefix: string;
+
+	constructor() {
+		// Random 4-hex prefix is sufficient to disambiguate concurrent n8n
+		// executions without depending on Date.now() (which can collide too).
+		this.idPrefix = Math.floor(Math.random() * 0xffff)
+			.toString(16)
+			.padStart(4, '0');
+	}
 
 	/**
-	 * Get next sequence ID (incremental)
+	 * Get next sequence ID (incremental, prefixed per-instance)
 	 */
 	private getNextSequenceId(): string {
-		return (this.sequenceId++).toString();
+		return `${this.idPrefix}-${this.sequenceId++}`;
 	}
 
 	/**
@@ -34,6 +45,15 @@ export class BambuLabCommands {
 
 		// Extract just the filename (not the full path) for display
 		const displayName = fileName.split('/').pop() || fileName;
+
+		const useAMS = options?.useAMS ?? true;
+
+		// Default ams_mapping depends on AMS usage:
+		// - With AMS enabled, send [] so the printer reads the slot mapping
+		//   embedded in the .3mf by the slicer. This is the right default for
+		//   multi-color prints; sending [0] forces single-slot use.
+		// - With AMS disabled, send [0] to route through the external spool tray.
+		const amsMapping = options?.amsMapping ?? (useAMS ? [] : [0]);
 
 		return {
 			print: {
@@ -51,16 +71,14 @@ export class BambuLabCommands {
 				file: '', // Not needed when url is specified
 				subtask_name: displayName,
 				// Print settings - Note: US spelling "bed_leveling" per working examples
-				bed_type: 'auto', // "auto" for local prints, or specific plate type
+				bed_type: options?.bedType ?? 'auto',
 				bed_leveling: options?.bedLeveling ?? true,
 				flow_cali: options?.flowCalibration ?? false,
 				vibration_cali: options?.vibrationCalibration ?? true,
 				layer_inspect: options?.layerInspect ?? false,
 				timelapse: options?.timelapse ?? false,
-				use_ams: options?.useAMS ?? true,
-				// Default to [0] (slot 1 for AMS, or external spool tray 0)
-				// Works for both use_ams true and false
-				ams_mapping: options?.amsMapping ?? [0],
+				use_ams: useAMS,
+				ams_mapping: amsMapping,
 			},
 		};
 	}
@@ -267,7 +285,7 @@ export class BambuLabCommands {
 	}
 
 	/**
-	 * Get current sequence ID (for reference)
+	 * Get current sequence ID counter value (for reference)
 	 */
 	getCurrentSequenceId(): number {
 		return this.sequenceId;
