@@ -9,10 +9,11 @@ import type {
 	FileDeleteResponse,
 } from './types';
 import { Readable, Writable } from 'stream';
-import { TIMEOUTS, PRINTER_DEFAULTS } from './constants';
+import { TIMEOUTS, PRINTER_DEFAULTS, LIMITS } from './constants';
 import { ErrorHelper } from './ErrorHelper';
 import { RetryHelper } from './RetryHelper';
 import { PathValidator } from './PathValidator';
+import { parseFTPDate } from './ftpDateParser';
 
 /**
  * FTP Helper for Bambu Lab Printer File Operations
@@ -171,6 +172,64 @@ export class BambuLabFtpClient {
 
 			throw ErrorHelper.wrapError(err, 'Failed to upload file');
 		}
+	}
+
+	/**
+	 * List printable files on the printer, merging across known roots.
+	 *
+	 * Probes /sdcard (A1 series), /cache (X1/P1 legacy slicer output), and /
+	 * (modern Bambu Studio target for .gcode.3mf). Each root that exists
+	 * contributes its files; roots that 550 are skipped silently. Hidden
+	 * files and directories are dropped so the dropdown stays focused on
+	 * user-printable content.
+	 *
+	 * Modification times come from Bambu's standard Unix LIST format via
+	 * parseFTPDate, so we get real mtime sort across the merged set rather
+	 * than per-root FTP-server return order.
+	 *
+	 * Each returned entry's `name` is the full path on the printer
+	 * (e.g. `/sdcard/model.3mf`, `/Kia.gcode.3mf`), so callers can use it
+	 * directly with delete/download/start operations.
+	 *
+	 * Used by the resourceLocator dropdown — never throws on a missing
+	 * root; returns [] only when every probe fails.
+	 */
+	async listPrintableFiles(): Promise<FTPFileInfo[]> {
+		await this.ensureConnection();
+
+		const roots = ['/sdcard/', '/cache/', '/'];
+		const collected: FTPFileInfo[] = [];
+
+		for (const root of roots) {
+			try {
+				const fileList = await this.client.list(root);
+				const rootPrefix = root === '/' ? '' : root.replace(/\/$/, '');
+
+				for (const f of fileList) {
+					if (f.isDirectory) continue;
+					if (f.name.startsWith('.')) continue;
+					collected.push({
+						name: `${rootPrefix}/${f.name}`,
+						type: 'file',
+						size: f.size,
+						modifiedTime: parseFTPDate(f.rawModifiedAt),
+						permissions: f.permissions,
+					});
+				}
+			} catch {
+				// Root doesn't exist on this printer firmware — skip and continue.
+			}
+		}
+
+		if (collected.length === 0) return [];
+
+		return collected
+			.sort((a, b) => {
+				const tb = b.modifiedTime?.getTime() ?? 0;
+				const ta = a.modifiedTime?.getTime() ?? 0;
+				return tb - ta;
+			})
+			.slice(0, LIMITS.MAX_FILE_LIST_RESULTS);
 	}
 
 	/**

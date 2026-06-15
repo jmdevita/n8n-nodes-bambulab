@@ -3,8 +3,10 @@ import type {
 	ICredentialTestFunctions,
 	IDataObject,
 	IExecuteFunctions,
+	ILoadOptionsFunctions,
 	INodeCredentialTestResult,
 	INodeExecutionData,
+	INodeListSearchResult,
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
@@ -23,6 +25,33 @@ import type {
 	FilamentMatchResult,
 	MatchedFilamentProfile,
 } from './helpers/types';
+
+function formatBytes(bytes?: number): string | null {
+	if (bytes === undefined || bytes === null) return null;
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function timeAgo(date?: Date): string | null {
+	if (!date) return null;
+	const ms = Date.now() - date.getTime();
+	if (ms < 0) return null;
+	const s = Math.floor(ms / 1000);
+	if (s < 60) return `${s}s ago`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ago`;
+	const h = Math.floor(m / 60);
+	if (h < 24) return `${h}h ago`;
+	const d = Math.floor(h / 24);
+	return `${d}d ago`;
+}
+
+function formatFileLabel(name: string, size?: number, modifiedTime?: Date): string {
+	const meta = [formatBytes(size), timeAgo(modifiedTime)].filter(Boolean);
+	return meta.length ? `${name} — ${meta.join(', ')}` : name;
+}
 
 export class BambuLab implements INodeType {
 	description: INodeTypeDescription = {
@@ -122,22 +151,40 @@ export class BambuLab implements INodeType {
 				default: 'start',
 			},
 
-			// Print: Start - File Name
+			// Print: Start - File (resourceLocator)
 			{
-				displayName: 'File Name',
+				displayName: 'File',
 				name: 'fileName',
-				type: 'string',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
+				required: true,
 				displayOptions: {
 					show: {
 						resource: ['print'],
 						operation: ['start'],
 					},
 				},
-				default: '',
-				required: true,
-				placeholder: 'model.gcode.3mf',
 				description:
-					'Name of the .3mf file on the printer (e.g., model.3mf or model.gcode.3mf). Must be a sliced project file exported from Bambu Studio.',
+					'The .3mf file on the printer to print. Must be a sliced project file exported from Bambu Studio.',
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						placeholder: 'Select a file…',
+						typeOptions: {
+							searchListMethod: 'searchFiles',
+							searchable: true,
+						},
+					},
+					{
+						displayName: 'By Path',
+						name: 'path',
+						type: 'string',
+						placeholder: '/sdcard/model.3mf',
+						hint: 'Full path or filename. Supports expressions like {{$json.fileName}}.',
+					},
+				],
 			},
 
 			// Print: Start - Bed Type (promoted to top-level for visibility)
@@ -309,6 +356,12 @@ export class BambuLab implements INodeType {
 						description: 'List files on the printer SD card',
 					},
 					{
+						name: 'Download',
+						value: 'download',
+						action: 'Download a file',
+						description: 'Download a file from the printer as binary data',
+					},
+					{
 						name: 'Delete',
 						value: 'delete',
 						action: 'Delete a file',
@@ -318,10 +371,10 @@ export class BambuLab implements INodeType {
 				default: 'upload',
 			},
 
-			// File: Upload - File Content
+			// File: Upload - Binary Property
 			{
-				displayName: 'File Content',
-				name: 'fileContent',
+				displayName: 'Input Binary Field',
+				name: 'binaryPropertyName',
 				type: 'string',
 				displayOptions: {
 					show: {
@@ -329,12 +382,12 @@ export class BambuLab implements INodeType {
 						operation: ['upload'],
 					},
 				},
-				default: '',
+				default: 'data',
 				required: true,
-				description: 'The content of the file to upload (G-code or 3MF)',
-				typeOptions: {
-					rows: 10,
-				},
+				placeholder: 'data',
+				description:
+					'Name of the binary property on the incoming item containing the file to upload. Use an HTTP Request, Read Binary File, or webhook node upstream to load the .3mf / .gcode file.',
+				hint: 'Defaults to "data" — the property name n8n uses for the first binary item.',
 			},
 
 			// File: Upload - File Name
@@ -384,21 +437,39 @@ export class BambuLab implements INodeType {
 				description: 'Path to list files from (default: root directory)',
 			},
 
-			// File: Delete - File Path
+			// File: Delete / Download - File (resourceLocator)
 			{
-				displayName: 'File Path',
+				displayName: 'File',
 				name: 'filePath',
-				type: 'string',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
+				required: true,
 				displayOptions: {
 					show: {
 						resource: ['file'],
-						operation: ['delete'],
+						operation: ['delete', 'download'],
 					},
 				},
-				default: '',
-				required: true,
-				placeholder: '/model.gcode',
-				description: 'Full path to the file to delete',
+				description: 'File on the printer to operate on',
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						placeholder: 'Select a file…',
+						typeOptions: {
+							searchListMethod: 'searchFiles',
+							searchable: true,
+						},
+					},
+					{
+						displayName: 'By Path',
+						name: 'path',
+						type: 'string',
+						placeholder: '/sdcard/model.3mf',
+						hint: 'Full path on the printer. Supports expressions.',
+					},
+				],
 			},
 
 			// ==================== CAMERA OPERATIONS ====================
@@ -543,6 +614,48 @@ export class BambuLab implements INodeType {
 	};
 
 	methods = {
+		listSearch: {
+			async searchFiles(
+				this: ILoadOptionsFunctions,
+				filter?: string,
+			): Promise<INodeListSearchResult> {
+				const credentials = (await this.getCredentials(
+					'bambuLabApi',
+				)) as unknown as BambuLabCredentials;
+				const ftpClient = new BambuLabFtpClient(credentials);
+
+				try {
+					await ftpClient.connect();
+					const files = await ftpClient.listPrintableFiles();
+
+					const lowered = filter?.toLowerCase();
+					const matched = lowered
+						? files.filter((f) => {
+								const base = f.name.split('/').pop() ?? f.name;
+								return base.toLowerCase().includes(lowered);
+							})
+						: files;
+
+					return {
+						results: matched.map((f) => {
+							const base = f.name.split('/').pop() ?? f.name;
+							return {
+								name: formatFileLabel(base, f.size, f.modifiedTime),
+								value: f.name,
+							};
+						}),
+					};
+				} catch (err) {
+					throw new Error(
+						`Cannot list files on printer at ${credentials.printerIp}: ${
+							(err as Error).message
+						}. Switch to "By Path" mode to enter the filename manually.`,
+					);
+				} finally {
+					ftpClient.disconnect();
+				}
+			},
+		},
 		credentialTest: {
 			async bambuLabApiTest(
 				this: ICredentialTestFunctions,
@@ -624,7 +737,9 @@ export class BambuLab implements INodeType {
 					// ==================== PRINT RESOURCE ====================
 					if (resource === 'print') {
 						if (operation === 'start') {
-							const fileName = this.getNodeParameter('fileName', i) as string;
+							const fileName = this.getNodeParameter('fileName', i, '', {
+								extractValue: true,
+							}) as string;
 							const options = this.getNodeParameter('printOptions', i, {}) as IDataObject;
 							const autoDetect = (options.autoDetectFilaments as boolean) ?? false;
 
@@ -818,12 +933,18 @@ export class BambuLab implements INodeType {
 					// ==================== FILE RESOURCE ====================
 					else if (resource === 'file') {
 						if (operation === 'upload') {
-							const fileContent = this.getNodeParameter('fileContent', i) as string;
+							const binaryPropertyName = this.getNodeParameter(
+								'binaryPropertyName',
+								i,
+								'data',
+							) as string;
 							const fileName = this.getNodeParameter('fileName', i) as string;
 							const remotePath = this.getNodeParameter('remotePath', i, '/') as string;
 
+							const buffer = await this.helpers.getBinaryDataBuffer(i, binaryPropertyName);
+
 							const result = await ftpClient.uploadFile({
-								fileContent,
+								fileContent: buffer,
 								fileName,
 								remotePath,
 							});
@@ -834,9 +955,39 @@ export class BambuLab implements INodeType {
 							const result = await ftpClient.listFiles(path);
 							responseData = result as unknown as IDataObject;
 						} else if (operation === 'delete') {
-							const filePath = this.getNodeParameter('filePath', i) as string;
+							const filePath = this.getNodeParameter('filePath', i, '', {
+								extractValue: true,
+							}) as string;
 							const result = await ftpClient.deleteFile(filePath);
 							responseData = result as unknown as IDataObject;
+						} else if (operation === 'download') {
+							const filePath = this.getNodeParameter('filePath', i, '', {
+								extractValue: true,
+							}) as string;
+							// Normalize to an absolute path so basic-ftp's get/list semantics
+							// agree with the printer's FTP root.
+							const sanitized = PathValidator.sanitizePath(filePath);
+							const remotePath = sanitized.startsWith('/') ? sanitized : `/${sanitized}`;
+
+							const buffer = await ftpClient.downloadFileAsBuffer(remotePath);
+							const baseName = remotePath.split('/').pop() || 'download.bin';
+							const binaryData = await this.helpers.prepareBinaryData(
+								buffer,
+								baseName,
+								'application/octet-stream',
+							);
+
+							returnData.push({
+								json: {
+									success: true,
+									fileName: baseName,
+									remotePath,
+									size: buffer.length,
+								},
+								binary: { data: binaryData },
+								pairedItem: { item: i },
+							});
+							continue;
 						} else {
 							throw new NodeOperationError(
 								this.getNode(),

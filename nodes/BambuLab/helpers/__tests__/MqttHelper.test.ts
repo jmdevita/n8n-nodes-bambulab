@@ -126,6 +126,51 @@ describe('BambuLabMqttClient', () => {
 		});
 	});
 
+	describe('QoS 0 publish contract', () => {
+		// Bambu P1/A1 firmware has a known stuck-broker bug when the client
+		// publishes QoS 1 but never awaits PUBACK — mqtt.js end(false) hangs on
+		// outgoingEmpty, falls back to a force-close that drops the DISCONNECT
+		// packet, and the broker holds the single MQTT slot until the printer
+		// is power-cycled. This contract locks publishes at QoS 0 so the fix
+		// can't be silently reverted. See MqttHelper.ts for full rationale.
+
+		it('publishCommand uses qos: 0', async () => {
+			const { helper, mockClient } = await connectHelper();
+
+			const command: PrintCommand = {
+				print: { sequence_id: 'qos-test-1', command: 'pause' },
+			};
+			await helper.publishCommand(command, false);
+
+			expect(mockClient.publish).toHaveBeenCalledTimes(1);
+			const [, , options] = mockClient.publish.mock.calls[0];
+			expect(options).toEqual({ qos: 0 });
+
+			await helper.disconnect();
+		});
+
+		it('getStatus publish uses qos: 0', async () => {
+			const { helper, mockClient } = await connectHelper();
+			// Shrink the response window — we only care about the publish call.
+			(helper as unknown as { responseTimeout: number }).responseTimeout = 50;
+
+			// Fire-and-discard: we don't need the resolved status for this assertion.
+			const statusPromise = helper.getStatus();
+			statusPromise.catch(() => {
+				/* expected — no matching message arrives */
+			});
+
+			// Let the publish synchronously execute before disconnect.
+			await Promise.resolve();
+
+			expect(mockClient.publish).toHaveBeenCalledTimes(1);
+			const [, , options] = mockClient.publish.mock.calls[0];
+			expect(options).toEqual({ qos: 0 });
+
+			await helper.disconnect();
+		});
+	});
+
 	describe('disconnect timer cleanup', () => {
 		it('clears polling intervals from an in-flight publishCommand', async () => {
 			const { helper, mockClient } = await connectHelper();

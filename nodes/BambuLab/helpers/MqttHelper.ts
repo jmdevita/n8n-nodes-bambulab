@@ -30,12 +30,6 @@ export class BambuLabMqttClient {
 
 	private responseTimeout = TIMEOUTS.MQTT_RESPONSE;
 
-	private updateCallback?: (status: PrinterStatus) => void;
-
-	private lastParseError: Error | null = null;
-
-	private parseErrorHistory: Array<{ timestamp: Date; error: Error }> = [];
-
 	// Track active polling timers so disconnect can clear them and stop leaks
 	// when an awaited promise is abandoned (e.g. workflow cancel).
 	private activeTimers = new Set<NodeJS.Timeout>();
@@ -102,7 +96,7 @@ export class BambuLabMqttClient {
 				const client = this.client; // Capture so handlers reference the same instance
 
 				// Always-on message handler (active before and after connect)
-				const onMessage = (topic: string, message: Buffer) => {
+				const onMessage = (_topic: string, message: Buffer) => {
 					try {
 						const parsedMessage = JSON.parse(message.toString()) as MQTTMessage;
 
@@ -111,26 +105,8 @@ export class BambuLabMqttClient {
 							this.messageBuffer.shift(); // Remove oldest message
 						}
 						this.messageBuffer.push(parsedMessage);
-
-						// Also call the update callback if registered
-						if (this.updateCallback && topic === this.reportTopic) {
-							this.updateCallback(parsedMessage as PrinterStatus);
-						}
 					} catch (error) {
-						// Track parse errors for debugging
-						const parseError = error as Error;
-						this.lastParseError = parseError;
-						this.parseErrorHistory.push({
-							timestamp: new Date(),
-							error: parseError,
-						});
-
-						// Keep only last 10 parse errors
-						if (this.parseErrorHistory.length > 10) {
-							this.parseErrorHistory.shift();
-						}
-
-						console.error('Failed to parse MQTT message:', parseError.message);
+						console.error('Failed to parse MQTT message:', (error as Error).message);
 					}
 				};
 				client.on('message', onMessage);
@@ -238,8 +214,18 @@ export class BambuLabMqttClient {
 							? command.gcode_line.sequence_id
 							: undefined;
 
-		// Publish without waiting for callback (mqtt.js has known callback reliability issues)
-		this.client.publish(this.requestTopic, commandStr, { qos: 1 });
+		// QoS 0 is intentional. Bambu P1/A1 firmware has a known bug where a
+		// QoS 1 PUBLISH whose PUBACK we don't await leaves the broker in a
+		// stuck single-client slot state — subsequent connects fail with
+		// connack timeout until the printer is power-cycled. mqtt.js end(false)
+		// then hangs on outgoingEmpty because no PUBACK ever closes the loop.
+		// Going QoS 0 makes end() proceed straight to DISCONNECT, which the
+		// broker releases cleanly. We don't lose anything functional: TCP
+		// already guarantees delivery on LAN, our application-level correlation
+		// is via the report topic + sequence_id (not PUBACK), and pybambu (the
+		// reference HA implementation) uses QoS 0 for all publishes too.
+		// Refs: ha-bambulab#174, BambuStudio#2404.
+		this.client.publish(this.requestTopic, commandStr, { qos: 0 });
 
 		// If not waiting for response, return immediately
 		if (!waitForResponse) {
@@ -334,8 +320,10 @@ export class BambuLabMqttClient {
 			},
 		};
 
-		// Publish without waiting for callback (mqtt.js has known callback reliability issues)
-		this.client.publish(this.requestTopic, JSON.stringify(pushCommand), { qos: 1 });
+		// QoS 0 — see publishCommand for rationale. Status queries don't need
+		// broker-level ack guarantees; printer response arrives via the report
+		// topic which we poll for in messageBuffer.
+		this.client.publish(this.requestTopic, JSON.stringify(pushCommand), { qos: 0 });
 
 		// Wait for printer response (not publish callback)
 		return new Promise((resolve, reject) => {
@@ -376,57 +364,6 @@ export class BambuLabMqttClient {
 			}, INTERVALS.MESSAGE_POLL);
 			this.activeTimers.add(checkInterval);
 		});
-	}
-
-	/**
-	 * Subscribe to printer status updates with a callback
-	 * Useful for real-time monitoring
-	 */
-	subscribeToUpdates(callback: (status: PrinterStatus) => void): void {
-		if (!this.client) {
-			throw new Error('MQTT client is not initialized');
-		}
-
-		// Store the callback - will be invoked by the existing message handler
-		this.updateCallback = callback;
-	}
-
-	/**
-	 * Get the MQTT client instance (for advanced usage)
-	 */
-	getClient(): MqttClient | null {
-		return this.client;
-	}
-
-	/**
-	 * Check if the client is connected
-	 */
-	isConnected(): boolean {
-		return this.client?.connected ?? false;
-	}
-
-	/**
-	 * Clear the message buffer
-	 * Useful for cleanup or resetting state
-	 */
-	clearMessageBuffer(): void {
-		this.messageBuffer = [];
-	}
-
-	/**
-	 * Get the last parse error (if any)
-	 * Useful for debugging message parsing issues
-	 */
-	getLastParseError(): Error | null {
-		return this.lastParseError;
-	}
-
-	/**
-	 * Get parse error history
-	 * Returns the last 10 parse errors with timestamps
-	 */
-	getParseErrorHistory(): Array<{ timestamp: Date; error: Error }> {
-		return [...this.parseErrorHistory]; // Return copy to prevent external modification
 	}
 
 	/**
@@ -501,16 +438,4 @@ export class BambuLabMqttClient {
 		});
 	}
 
-	/**
-	 * Force disconnect (immediate)
-	 */
-	forceDisconnect(): void {
-		this.clearActiveTimers();
-		if (this.client) {
-			this.client.removeAllListeners();
-			this.client.end(true);
-			this.client = null;
-			this.messageBuffer = [];
-		}
-	}
 }

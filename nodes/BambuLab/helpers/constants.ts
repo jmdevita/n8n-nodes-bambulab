@@ -27,6 +27,8 @@ export const INTERVALS = {
 export const LIMITS = {
 	/** Maximum MQTT message buffer size before oldest messages are discarded */
 	MAX_MESSAGE_BUFFER: 100,
+	/** Maximum number of files returned by the resourceLocator dropdown */
+	MAX_FILE_LIST_RESULTS: 200,
 } as const;
 
 // ==================== Printer Defaults ====================

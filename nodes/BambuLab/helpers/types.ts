@@ -190,7 +190,6 @@ export interface PrintCommand extends BaseCommand {
 		url?: string;
 		file?: string;
 		subtask_name?: string;
-		md5?: string;
 		// Print settings
 		bed_type?: string;
 		bed_leveling?: boolean;
@@ -231,26 +230,6 @@ export interface GcodeLineCommand extends BaseCommand {
 	};
 }
 
-// ===== Temperature Types =====
-
-export interface TemperatureData {
-	nozzle_temp: number;
-	nozzle_target_temp: number;
-	bed_temp: number;
-	bed_target_temp: number;
-	chamber_temp?: number;
-}
-
-// ===== Camera Types =====
-
-export interface CameraInfo {
-	enabled: boolean;
-	recording?: boolean;
-	timelapse?: boolean;
-	stream_url?: string;
-	rtsp_url?: string;
-}
-
 // ===== FTP Types =====
 
 export interface FTPUploadOptions {
@@ -277,17 +256,6 @@ export interface FTPUploadProgress {
 
 // ===== Print Job Types =====
 
-export interface PrintJobOptions {
-	fileName: string;
-	bedLeveling?: boolean;
-	flowCalibration?: boolean;
-	vibrationCalibration?: boolean;
-	layerInspect?: boolean;
-	timelapse?: boolean;
-	useAMS?: boolean;
-	amsMapping?: string | number[]; // String from UI (comma-separated) or array when used programmatically
-}
-
 // Subset of PrintJobOptions used for command generation (after UI string parsing)
 export interface PrintCommandOptions {
 	bedLeveling?: boolean;
@@ -298,22 +266,6 @@ export interface PrintCommandOptions {
 	timelapse?: boolean;
 	useAMS?: boolean;
 	amsMapping?: number[]; // Only number array for command generation
-}
-
-// ===== Version Info Types =====
-
-export interface VersionInfo {
-	software_version?: string;
-	hardware_version?: string;
-	ota_version?: string;
-}
-
-// ===== Error Types =====
-
-export interface BambuLabError {
-	code: number;
-	message: string;
-	details?: Record<string, unknown>;
 }
 
 // ===== MQTT Message Types =====
@@ -356,25 +308,6 @@ export interface FileDeleteResponse {
 	message: string;
 	fileName: string;
 }
-
-// ===== Print States (enum-like) =====
-
-export type PrintState =
-	| 'IDLE'
-	| 'PRINTING'
-	| 'PAUSED'
-	| 'FINISHED'
-	| 'FAILED'
-	| 'PREPARE'
-	| 'RUNNING'
-	| 'SLICING'
-	| 'UNKNOWN';
-
-export type GcodeState = 'IDLE' | 'PREPARE' | 'RUNNING' | 'PAUSE' | 'FINISH' | 'FAILED' | 'UNKNOWN';
-
-// ===== Lifecycle States =====
-
-export type LifecycleState = 'idle' | 'printing' | 'paused' | 'preparing' | 'unknown';
 
 // ===== LED Mode Types =====
 
